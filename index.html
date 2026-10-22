@@ -348,7 +348,6 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
         <span class="msg" id="msg-weather">In attesa...</span>
       </div>
 
-      <!-- Dati astronomici da 7Timer -->
       <h3 style="color:var(--accent);margin-top:25px;font-size:16px;border-top:1px solid var(--line);padding-top:15px;font-family:'Orbitron',sans-serif">🔭 Meteo Astronomico (Seeing & Trasparenza)</h3>
       <div id="astro-weather-card" style="margin-bottom:15px;">
         <div style="color:var(--muted);padding:10px">I dati astronomici verranno caricati automaticamente.</div>
@@ -392,17 +391,15 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
 
 <script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="./app.js?v=4"></script>
+<script src="./app.js?v=5"></script>
 
 <script>
-// ---- Banner errori JS visibile ----
 window.addEventListener('error', function(e){
   var b = document.getElementById('js-error-banner');
   if(!b) return;
   b.style.display = 'block';
   b.textContent = '⚠️ Errore: ' + (e.message || 'sconosciuto') + ' — Ricarica con Ctrl+Shift+R o svuota la cache';
 });
-// ---- Controllo che app.js sia stato caricato ----
 setTimeout(function(){
   if(!window.__appLoaded){
     var b = document.getElementById('js-error-banner');
@@ -412,11 +409,10 @@ setTimeout(function(){
     }
   }
 }, 4000);
-// ---- Registrazione SW (dopo che l'app è pronta) ----
 window.addEventListener('load', function(){
   setTimeout(function(){
     if('serviceWorker' in navigator && window.__appLoaded){
-      navigator.serviceWorker.register('./service-worker.js?v=4', {scope: './'})
+      navigator.serviceWorker.register('./service-worker.js?v=5', {scope: './'})
         .then(function(r){ console.log('SW registrato:', r.scope); })
         .catch(function(e){ console.warn('SW errore:', e); });
     }
