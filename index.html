@@ -13,7 +13,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js"></script>
 <style>
 :root{--bg:#03050a;--bg2:#080c14;--card:#0d121c;--accent:#d4af37;--accent2:#f3e5ab;--text:#c9d1e3;--muted:#6b778c;--line:#1a2233;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--glow:rgba(212,175,55,0.15)}
 body.night-mode{--bg:#000;--bg2:#050000;--card:#0f0000;--accent:#ff3333;--accent2:#ff6666;--text:#ff9999;--muted:#aa4444;--line:#330000;--ok:#ff4444;--warn:#ffaa00;--bad:#f00;--glow:rgba(255,51,51,0.15)}
@@ -111,9 +110,6 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
 .section-divider{font-family:'Orbitron',sans-serif;font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
 .search-box{display:flex;gap:8px;margin-bottom:15px}
 .search-box input{flex:1;padding:10px 14px}
-.search-results{max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:10px}
-.search-result-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
-.search-result-item:hover{background:rgba(212,175,55,.1)}
 .gps-banner{background:linear-gradient(90deg,rgba(74,222,128,.15),rgba(212,175,55,.15));border:1px solid var(--ok);border-radius:10px;padding:12px 15px;margin-bottom:15px;font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .gps-btn{background:var(--ok);color:#000;border:none;padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px}
 .cat-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:15px}
@@ -128,10 +124,14 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
 .owm-key-box{display:flex;gap:8px;align-items:center;margin-bottom:15px;flex-wrap:wrap}
 .owm-key-box input{flex:1;min-width:220px;padding:10px}
 .weather-auto-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--ok);background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);padding:4px 10px;border-radius:20px}
+#js-error-banner{display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#f87171;color:#000;padding:12px;text-align:center;font-weight:bold;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
 @media(max-width:600px){.detail-grid{grid-template-columns:1fr}.time-slider-inline{flex-wrap:wrap}.time-display-inline{width:100%;text-align:center}#weather-map{height:300px}}
 </style>
 </head>
 <body id="appBody">
+
+<div id="js-error-banner"></div>
+
 <header>
   <div class="header-buttons">
     <button class="btn-night" onclick="toggleNightMode()">
@@ -187,58 +187,40 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
             <option value="45.5416,10.2118,Brescia">Brescia</option>
             <option value="44.8015,10.3279,Parma">Parma</option>
             <option value="44.6471,10.9252,Modena">Modena</option>
-            <option value="38.1113,15.6619,Reggio Calabria">Reggio Calabria</option>
             <option value="43.1107,12.3908,Perugia">Perugia</option>
             <option value="44.4184,12.2035,Ravenna">Ravenna</option>
             <option value="43.5485,10.3106,Livorno">Livorno</option>
-            <option value="41.4622,15.5446,Foggia">Foggia</option>
             <option value="44.0678,12.5695,Rimini">Rimini</option>
             <option value="40.6824,14.7681,Salerno">Salerno</option>
             <option value="44.8381,11.6198,Ferrara">Ferrara</option>
-            <option value="40.7259,8.5557,Sassari">Sassari</option>
             <option value="41.4676,12.9037,Latina">Latina</option>
-            <option value="45.5845,9.2744,Monza">Monza</option>
             <option value="37.0755,15.2866,Siracusa">Siracusa</option>
             <option value="42.4618,14.2161,Pescara">Pescara</option>
             <option value="45.6983,9.6773,Bergamo">Bergamo</option>
             <option value="46.0679,11.1211,Trento">Trento</option>
             <option value="45.5455,11.5354,Vicenza">Vicenza</option>
             <option value="46.4983,11.3548,Bolzano">Bolzano</option>
-            <option value="45.4469,8.6222,Novara">Novara</option>
-            <option value="45.0526,9.6930,Piacenza">Piacenza</option>
             <option value="43.6158,13.5189,Ancona">Ancona</option>
-            <option value="43.4633,11.8796,Arezzo">Arezzo</option>
             <option value="46.0711,13.2346,Udine">Udine</option>
             <option value="40.3515,18.1750,Lecce">Lecce</option>
-            <option value="41.3198,16.2719,Barletta">Barletta</option>
             <option value="44.1024,9.8241,La Spezia">La Spezia</option>
             <option value="43.7161,10.3966,Pisa">Pisa</option>
-            <option value="38.9098,16.5877,Catanzaro">Catanzaro</option>
-            <option value="43.9333,10.9167,Pistoia">Pistoia</option>
-            <option value="43.8430,10.5034,Lucca">Lucca</option>
             <option value="40.6327,17.9418,Brindisi">Brindisi</option>
             <option value="45.6667,12.2500,Treviso">Treviso</option>
             <option value="45.8090,8.8510,Como">Como</option>
             <option value="42.7667,11.1167,Grosseto">Grosseto</option>
             <option value="45.8206,8.8251,Varese">Varese</option>
-            <option value="44.9000,8.2000,Asti">Asti</option>
             <option value="41.0747,14.3328,Caserta">Caserta</option>
-            <option value="45.1850,9.1550,Pavia">Pavia</option>
-            <option value="45.1333,10.0333,Cremona">Cremona</option>
             <option value="42.3500,13.4000,L'Aquila">L'Aquila</option>
             <option value="38.0167,12.5333,Trapani">Trapani</option>
             <option value="42.4167,12.1000,Viterbo">Viterbo</option>
             <option value="39.3000,16.2500,Cosenza">Cosenza</option>
             <option value="40.6333,15.8000,Potenza">Potenza</option>
-            <option value="39.0833,17.1333,Crotone">Crotone</option>
             <option value="40.6667,16.6000,Matera">Matera</option>
-            <option value="41.1333,14.7833,Benevento">Benevento</option>
             <option value="37.3167,13.5833,Agrigento">Agrigento</option>
-            <option value="44.3833,7.5333,Cuneo">Cuneo</option>
             <option value="46.1333,12.2167,Belluno">Belluno</option>
             <option value="45.7333,7.3167,Aosta">Aosta</option>
             <option value="41.5667,14.6667,Campobasso">Campobasso</option>
-            <option value="41.6000,14.2333,Isernia">Isernia</option>
           </select>
         </div>
         <div><label>Latitudine</label><input type="number" id="lat" value="41.9028" step="0.0001"></div>
@@ -399,7 +381,39 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="./app.js"></script>
+<script src="./app.js?v=3"></script>
+
+<script>
+// ---- Banner errori JS visibile ----
+window.addEventListener('error', function(e){
+  var b = document.getElementById('js-error-banner');
+  if(!b) return;
+  b.style.display = 'block';
+  b.textContent = '⚠️ Errore: ' + (e.message || 'sconosciuto') + ' — Ricarica con Ctrl+Shift+R o svuota la cache';
+});
+// ---- Controllo che app.js sia stato caricato ----
+setTimeout(function(){
+  if(!window.__appLoaded){
+    var b = document.getElementById('js-error-banner');
+    if(b){
+      b.style.display = 'block';
+      b.innerHTML = '⚠️ <b>app.js non caricato.</b> Verifica che il file si chiami esattamente <code>app.js</code> nella root del repository e ricarica la pagina.';
+    }
+  }
+}, 4000);
+// ---- Registrazione SW (dopo che l'app è pronta) ----
+window.addEventListener('load', function(){
+  setTimeout(function(){
+    if('serviceWorker' in navigator && window.__appLoaded){
+      navigator.serviceWorker.register('./service-worker.js?v=3', {scope: './'})
+        .then(function(r){ console.log('SW registrato:', r.scope); })
+        .catch(function(e){ console.warn('SW errore:', e); });
+    }
+  }, 1000);
+});
+</script>
+
 </body>
 </html>
