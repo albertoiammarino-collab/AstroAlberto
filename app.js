@@ -1,5 +1,5 @@
 /* ============================================================
-   ALBERTO ASTRO - App astronomica (v6 - fix CORS 7Timer)
+   ALBERTO ASTRO - App astronomica (v7 - mappa meteo completa)
    ============================================================ */
 'use strict';
 
@@ -22,7 +22,8 @@ const state = {
   weatherMap: null, weatherMarker: null,
   owmApiKey: localStorage.getItem('albertoastro_owm_key') || '',
   weatherTimer: null, radarLayer: null,
-  astroFetched: false
+  astroFetched: false,
+  activeWeatherLayer: 'clouds' // 'clouds', 'precipitation', 'wind', 'temp', 'pressure'
 };
 const _planetCache = { key: null, data: null };
 
@@ -861,6 +862,7 @@ function handleLogoUpload(event){
   reader.readAsDataURL(file);
 }
 
+// ---------- MAPPA METEO ----------
 function initWeatherMap(){
   const el=document.getElementById('weather-map');
   if(!el || typeof L==='undefined'){console.warn('Leaflet o #weather-map mancanti');return;}
@@ -872,107 +874,121 @@ function initWeatherMap(){
   try{
     state.weatherMap=L.map('weather-map',{
       center:[state.lat,state.lon],
-      zoom:9,
+      zoom:6, // zoom 6 per evitare errori di zoom troppo alto
+      minZoom:2,
+      maxZoom:10,
       zoomControl:true
     });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      attribution:'&copy; OpenStreetMap contributors',
+    // Base layer: Esri World Imagery
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+      attribution:'Tiles &copy; Esri',
       maxZoom:19
     }).addTo(state.weatherMap);
+    // Marker posizione
     state.weatherMarker=L.marker([state.lat,state.lon]).addTo(state.weatherMap)
       .bindPopup(`📍 ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`).openPopup();
-    addRainViewerLayer();
-    if(state.owmApiKey)addOwmCloudLayer();
+    // Aggiungi layer meteo attivo
+    updateWeatherLayer();
     setTimeout(()=>state.weatherMap.invalidateSize(), 100);
   }catch(e){console.error('initWeatherMap err',e);}
 }
-function centerWeatherMap(){
+
+function updateWeatherLayer(){
   if(!state.weatherMap) return;
-  state.weatherMap.setView([state.lat,state.lon], 9);
-  if(state.weatherMarker){
-    state.weatherMarker.setLatLng([state.lat,state.lon]);
-    state.weatherMarker.setPopupContent(`📍 ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`);
+  // Rimuovi layer precedente
+  if(state.radarLayer){
+    state.weatherMap.removeLayer(state.radarLayer);
+    state.radarLayer=null;
   }
-  setTimeout(()=>state.weatherMap.invalidateSize(), 100);
+  const layerType=state.activeWeatherLayer;
+  const key=state.owmApiKey;
+
+  if(layerType==='precipitation'){
+    // Usa RainViewer per precipitazioni (gratis, no key)
+    fetchRainViewer();
+    return;
+  }
+
+  if(!key){
+    // Se non c'è chiave OWM, mostra solo un messaggio per gli altri layer
+    console.warn('OWM key mancante per layer', layerType);
+    return;
+  }
+
+  let url='';
+  let name='';
+  switch(layerType){
+    case 'clouds':
+      url=`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${key}`;
+      name='Nuvole';
+      break;
+    case 'wind':
+      url=`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${key}`;
+      name='Vento';
+      break;
+    case 'temp':
+      url=`https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${key}`;
+      name='Temperatura';
+      break;
+    case 'pressure':
+      url=`https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid=${key}`;
+      name='Pressione';
+      break;
+    default:
+      return;
+  }
+
+  // maxZoom: 8 per evitare "zoom level not supported"
+  state.radarLayer=L.tileLayer(url,{
+    attribution:'&copy; OpenWeatherMap',
+    maxZoom:8,
+    opacity:0.7
+  }).addTo(state.weatherMap);
+  state.radarLayer.on('tileerror', ()=>{console.warn('Errore tile OWM per layer', layerType);});
 }
-async function addRainViewerLayer(){
-  if(!state.weatherMap) return;
+
+async function fetchRainViewer(){
   try{
     const r = await fetch('https://api.rainviewer.com/public/weather-maps.json', {cache:'no-store'});
     if(!r.ok) throw new Error('RainViewer HTTP '+r.status);
     const data = await r.json();
     const radar = data.radar && data.radar.past && data.radar.past[data.radar.past.length-1];
     if(!radar){console.warn('RainViewer nessun frame');return;}
+    // maxZoom 7 per RainViewer
     const tileUrl = `https://tilecache.rainviewer.com${radar.path}/256/{z}/{x}/{y}/2/1_1.png`;
-    if(state.radarLayer) state.weatherMap.removeLayer(state.radarLayer);
     state.radarLayer = L.tileLayer(tileUrl, {
-      attribution:'&copy; RainViewer', maxZoom:19, opacity:0.65
+      attribution:'&copy; RainViewer', maxZoom:7, opacity:0.65
     }).addTo(state.weatherMap);
-    console.log('RainViewer radar aggiunto:', radar.path);
   }catch(e){console.warn('RainViewer err', e);}
 }
-function addOwmCloudLayer(){
-  if(!state.owmApiKey || !state.weatherMap) return;
-  try{
-    const cloudUrl = `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${state.owmApiKey}`;
-    const layer = L.tileLayer(cloudUrl, {attribution:'&copy; OWM', maxZoom:19, opacity:0.55});
-    layer.on('tileerror', ()=>{console.warn('Layer nuvole OWM non disponibile (401/403)');});
-    layer.addTo(state.weatherMap);
-  }catch(e){console.warn('OWM clouds err', e);}
+
+function centerWeatherMap(){
+  if(!state.weatherMap) return;
+  state.weatherMap.setView([state.lat,state.lon], 6);
+  if(state.weatherMarker){
+    state.weatherMarker.setLatLng([state.lat,state.lon]);
+    state.weatherMarker.setPopupContent(`📍 ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`);
+  }
+  setTimeout(()=>state.weatherMap.invalidateSize(), 100);
 }
 
-function saveOwmKey(){
-  const key=document.getElementById('owm-api-key').value.trim();
-  if(!key){alert('Inserisci una API Key valida.');return;}
-  state.owmApiKey=key;
-  localStorage.setItem('albertoastro_owm_key',key);
-  const m=document.getElementById('msg-weather');
-  m.innerText='✅ API Key salvata.';m.className='msg success';
-  if(state.weatherMap)addOwmCloudLayer();
-  fetchWeather();
-}
-async function fetchWeather(){
-  const m=document.getElementById('msg-weather');
-  if(!state.owmApiKey){
-    m.innerText='⚠️ Inserisci prima la API Key OpenWeatherMap (o ignora questa sezione: seeing/trasparenza funzionano comunque).';
-    m.className='msg';m.style.color='var(--warn)';
-    return;
-  }
-  m.innerText='Caricamento OWM...';m.className='msg';m.style.color='';
-  try{
-    const url=`https://api.openweathermap.org/data/2.5/forecast?lat=${state.lat}&lon=${state.lon}&appid=${state.owmApiKey}&units=metric&lang=it`;
-    const res=await fetch(url,{cache:'no-store'});
-    if(!res.ok)throw new Error(`HTTP ${res.status}`);
-    const data=await res.json();
-    const list=data.list.slice(0,8);
-    const clouds=list.map(i=>i.clouds.all);
-    const temps=list.map(i=>i.main.temp);
-    const hums=list.map(i=>i.main.humidity);
-    const winds=list.map(i=>i.wind.speed*3.6);
-    const avg=clouds.reduce((a,b)=>a+b,0)/clouds.length;
-    state.clouds=avg;
-    document.getElementById('weather-grid').innerHTML=`
-      <div class="card"><label>Nuvole (24h)</label><div class="val">${avg.toFixed(0)}%</div></div>
-      <div class="card"><label>Temp (min)</label><div class="val">${Math.min(...temps).toFixed(1)}°C</div></div>
-      <div class="card"><label>Umidità (max)</label><div class="val">${Math.max(...hums).toFixed(0)}%</div></div>
-      <div class="card"><label>Vento (max)</label><div class="val">${Math.max(...winds).toFixed(0)}km/h</div></div>`;
-    renderQuality();
-    centerWeatherMap();
-    m.innerText='✅ Meteo OWM aggiornato.';m.className='msg success';m.style.color='';
-  }catch(e){
-    m.innerText='❌ OWM: '+e.message+' — (vedi comunque la sezione Meteo Astronomico qui sotto)';m.className='msg';m.style.color='var(--bad)';
-  }
+// Funzione per cambiare layer meteo (chiamata dai tab)
+function setWeatherLayer(layer, btn){
+  state.activeWeatherLayer = layer;
+  document.querySelectorAll('#weatherLayers .weather-tab').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  updateWeatherLayer();
 }
 
-// ---- 7Timer con proxy CORS ----
+// ---------- 7TIMER ----------
 async function fetchAstroWeather(){
   const card=document.getElementById('astro-weather-card');
   if(!card) return;
-  card.innerHTML='<div style="color:var(--muted);padding:10px">⏳ Caricamento dati astronomici da 7Timer...</div>';
+  card.innerHTML='<div style="color:var(--muted);padding:10px">⏳ Caricamento dati astronomici...</div>';
   try{
     const directUrl = `https://www.7timer.info/bin/api.pl?lon=${state.lon}&lat=${state.lat}&product=astro&output=json`;
-    // Usa un proxy CORS pubblico per aggirare il blocco del browser
-    const proxiedUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
+    // Usa proxy corsproxy.io
+    const proxiedUrl = `https://corsproxy.io/?${encodeURIComponent(directUrl)}`;
     console.log('7Timer proxy URL:', proxiedUrl);
     const res = await fetch(proxiedUrl, { cache: 'no-store' });
     if(!res.ok) throw new Error('Proxy HTTP ' + res.status);
@@ -1028,6 +1044,39 @@ function startWeatherAutoUpdate(){
       if(state.owmApiKey)fetchWeather();
     }
   },10*60*1000);
+}
+
+async function fetchWeather(){
+  const m=document.getElementById('msg-weather');
+  if(!state.owmApiKey){
+    m.innerText='⚠️ Inserisci prima la API Key OpenWeatherMap (o ignora questa sezione: seeing/trasparenza funzionano comunque).';
+    m.className='msg';m.style.color='var(--warn)';
+    return;
+  }
+  m.innerText='Caricamento OWM...';m.className='msg';m.style.color='';
+  try{
+    const url=`https://api.openweathermap.org/data/2.5/forecast?lat=${state.lat}&lon=${state.lon}&appid=${state.owmApiKey}&units=metric&lang=it`;
+    const res=await fetch(url,{cache:'no-store'});
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
+    const list=data.list.slice(0,8);
+    const clouds=list.map(i=>i.clouds.all);
+    const temps=list.map(i=>i.main.temp);
+    const hums=list.map(i=>i.main.humidity);
+    const winds=list.map(i=>i.wind.speed*3.6);
+    const avg=clouds.reduce((a,b)=>a+b,0)/clouds.length;
+    state.clouds=avg;
+    document.getElementById('weather-grid').innerHTML=`
+      <div class="card"><label>Nuvole (24h)</label><div class="val">${avg.toFixed(0)}%</div></div>
+      <div class="card"><label>Temp (min)</label><div class="val">${Math.min(...temps).toFixed(1)}°C</div></div>
+      <div class="card"><label>Umidità (max)</label><div class="val">${Math.max(...hums).toFixed(0)}%</div></div>
+      <div class="card"><label>Vento (max)</label><div class="val">${Math.max(...winds).toFixed(0)}km/h</div></div>`;
+    renderQuality();
+    centerWeatherMap();
+    m.innerText='✅ Meteo OWM aggiornato.';m.className='msg success';m.style.color='';
+  }catch(e){
+    m.innerText='❌ OWM: '+e.message+' — (vedi comunque la sezione Meteo Astronomico qui sotto)';m.className='msg';m.style.color='var(--bad)';
+  }
 }
 
 function initApp(){
