@@ -1,5 +1,5 @@
 /* ============================================================
-   ALBERTO ASTRO - App astronomica (v7 - mappa meteo completa)
+   ALBERTO ASTRO - App astronomica (v8 - 7Timer con doppio proxy)
    ============================================================ */
 'use strict';
 
@@ -23,7 +23,7 @@ const state = {
   owmApiKey: localStorage.getItem('albertoastro_owm_key') || '',
   weatherTimer: null, radarLayer: null,
   astroFetched: false,
-  activeWeatherLayer: 'clouds' // 'clouds', 'precipitation', 'wind', 'temp', 'pressure'
+  activeWeatherLayer: 'clouds'
 };
 const _planetCache = { key: null, data: null };
 
@@ -874,20 +874,17 @@ function initWeatherMap(){
   try{
     state.weatherMap=L.map('weather-map',{
       center:[state.lat,state.lon],
-      zoom:6, // zoom 6 per evitare errori di zoom troppo alto
+      zoom:6,
       minZoom:2,
       maxZoom:10,
       zoomControl:true
     });
-    // Base layer: Esri World Imagery
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
       attribution:'Tiles &copy; Esri',
       maxZoom:19
     }).addTo(state.weatherMap);
-    // Marker posizione
     state.weatherMarker=L.marker([state.lat,state.lon]).addTo(state.weatherMap)
       .bindPopup(`📍 ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`).openPopup();
-    // Aggiungi layer meteo attivo
     updateWeatherLayer();
     setTimeout(()=>state.weatherMap.invalidateSize(), 100);
   }catch(e){console.error('initWeatherMap err',e);}
@@ -895,7 +892,6 @@ function initWeatherMap(){
 
 function updateWeatherLayer(){
   if(!state.weatherMap) return;
-  // Rimuovi layer precedente
   if(state.radarLayer){
     state.weatherMap.removeLayer(state.radarLayer);
     state.radarLayer=null;
@@ -904,41 +900,33 @@ function updateWeatherLayer(){
   const key=state.owmApiKey;
 
   if(layerType==='precipitation'){
-    // Usa RainViewer per precipitazioni (gratis, no key)
     fetchRainViewer();
     return;
   }
 
   if(!key){
-    // Se non c'è chiave OWM, mostra solo un messaggio per gli altri layer
     console.warn('OWM key mancante per layer', layerType);
     return;
   }
 
   let url='';
-  let name='';
   switch(layerType){
     case 'clouds':
       url=`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${key}`;
-      name='Nuvole';
       break;
     case 'wind':
       url=`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${key}`;
-      name='Vento';
       break;
     case 'temp':
       url=`https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${key}`;
-      name='Temperatura';
       break;
     case 'pressure':
       url=`https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid=${key}`;
-      name='Pressione';
       break;
     default:
       return;
   }
 
-  // maxZoom: 8 per evitare "zoom level not supported"
   state.radarLayer=L.tileLayer(url,{
     attribution:'&copy; OpenWeatherMap',
     maxZoom:8,
@@ -954,7 +942,6 @@ async function fetchRainViewer(){
     const data = await r.json();
     const radar = data.radar && data.radar.past && data.radar.past[data.radar.past.length-1];
     if(!radar){console.warn('RainViewer nessun frame');return;}
-    // maxZoom 7 per RainViewer
     const tileUrl = `https://tilecache.rainviewer.com${radar.path}/256/{z}/{x}/{y}/2/1_1.png`;
     state.radarLayer = L.tileLayer(tileUrl, {
       attribution:'&copy; RainViewer', maxZoom:7, opacity:0.65
@@ -972,7 +959,6 @@ function centerWeatherMap(){
   setTimeout(()=>state.weatherMap.invalidateSize(), 100);
 }
 
-// Funzione per cambiare layer meteo (chiamata dai tab)
 function setWeatherLayer(layer, btn){
   state.activeWeatherLayer = layer;
   document.querySelectorAll('#weatherLayers .weather-tab').forEach(b=>b.classList.remove('active'));
@@ -980,60 +966,77 @@ function setWeatherLayer(layer, btn){
   updateWeatherLayer();
 }
 
-// ---------- 7TIMER ----------
+// ---------- 7TIMER (DOPPIO PROXY) ----------
 async function fetchAstroWeather(){
   const card=document.getElementById('astro-weather-card');
   if(!card) return;
   card.innerHTML='<div style="color:var(--muted);padding:10px">⏳ Caricamento dati astronomici...</div>';
-  try{
-    const directUrl = `https://www.7timer.info/bin/api.pl?lon=${state.lon}&lat=${state.lat}&product=astro&output=json`;
-    // Usa proxy corsproxy.io
-    const proxiedUrl = `https://corsproxy.io/?${encodeURIComponent(directUrl)}`;
-    console.log('7Timer proxy URL:', proxiedUrl);
-    const res = await fetch(proxiedUrl, { cache: 'no-store' });
-    if(!res.ok) throw new Error('Proxy HTTP ' + res.status);
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch(e) { throw new Error('Risposta non JSON: ' + text.substring(0, 100)); }
-    if(!data.dataseries || data.dataseries.length === 0) throw new Error('Dataseries vuota');
 
-    const now = data.dataseries[0];
+  // URL diretto con v=3.6 per evitare bug noti della v3.7
+  const directUrl = `https://www.7timer.info/bin/api.pl?lon=${state.lon}&lat=${state.lat}&product=astro&output=json&v=3.6`;
 
-    const cloudMap={1:'Sereno (0-6%)',2:'Poco nuvoloso (6-19%)',3:'Parzialmente nuvoloso (19-31%)',4:'Nuvoloso (31-44%)',5:'Molto nuvoloso (44-56%)',6:'Coperto (56-69%)',7:'Coperto (69-81%)',8:'Coperto (81-94%)',9:'Totalmente coperto (94-100%)'};
-    const seeingMap={1:'Eccellente (≤0.5")',2:'Buono (0.5-0.75")',3:'Discreto (0.75-1")',4:'Mediocre (1-1.25")',5:'Scarso (1.25-1.5")',6:'Scarso (1.5-2")',7:'Molto scarso (2-2.5")',8:'Pessimo (>2.5")'};
-    const transpMap={1:'Eccellente (≤0.3 mag)',2:'Buona (0.3-0.6 mag)',3:'Discreta (0.6-1.0 mag)',4:'Mediocre (1.0-1.5 mag)',5:'Scarsa (1.5-2.0 mag)',6:'Scarsa (2.0-3.0 mag)',7:'Molto scarsa (3.0-4.0 mag)',8:'Pessima (>4.0 mag)'};
+  // Lista di proxy CORS da provare in sequenza
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`,
+    `https://corsproxy.io/?${encodeURIComponent(directUrl)}`
+  ];
 
-    const cloudLabel = cloudMap[now.cloudcover] || 'N/D';
-    const seeingLabel = seeingMap[now.seeing] || 'N/D';
-    const transpLabel = transpMap[now.transparency] || 'N/D';
-    const seeingColor = now.seeing <= 2 ? 'var(--ok)' : (now.seeing <= 4 ? 'var(--warn)' : 'var(--bad)');
-    const transpColor = now.transparency <= 2 ? 'var(--ok)' : (now.transparency <= 4 ? 'var(--warn)' : 'var(--bad)');
-    const cloudColor = now.cloudcover <= 3 ? 'var(--ok)' : (now.cloudcover <= 5 ? 'var(--warn)' : 'var(--bad)');
+  let lastError = null;
 
-    card.innerHTML = `
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
-        <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-          <label>☁️ Nuvolosità</label>
-          <div class="val" style="font-size:14px;color:${cloudColor};">${cloudLabel}</div>
+  for (const proxiedUrl of proxies) {
+    try {
+      console.log('Tentativo 7Timer con proxy:', proxiedUrl);
+      const res = await fetch(proxiedUrl, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch(e) { throw new Error('Risposta non JSON: ' + text.substring(0, 100)); }
+      if (!data.dataseries || data.dataseries.length === 0) throw new Error('Dataseries vuota');
+
+      // Se siamo qui, il tentativo è riuscito
+      const now = data.dataseries[0];
+      const cloudMap={1:'Sereno (0-6%)',2:'Poco nuvoloso (6-19%)',3:'Parzialmente nuvoloso (19-31%)',4:'Nuvoloso (31-44%)',5:'Molto nuvoloso (44-56%)',6:'Coperto (56-69%)',7:'Coperto (69-81%)',8:'Coperto (81-94%)',9:'Totalmente coperto (94-100%)'};
+      const seeingMap={1:'Eccellente (≤0.5")',2:'Buono (0.5-0.75")',3:'Discreto (0.75-1")',4:'Mediocre (1-1.25")',5:'Scarso (1.25-1.5")',6:'Scarso (1.5-2")',7:'Molto scarso (2-2.5")',8:'Pessimo (>2.5")'};
+      const transpMap={1:'Eccellente (≤0.3 mag)',2:'Buona (0.3-0.6 mag)',3:'Discreta (0.6-1.0 mag)',4:'Mediocre (1.0-1.5 mag)',5:'Scarsa (1.5-2.0 mag)',6:'Scarsa (2.0-3.0 mag)',7:'Molto scarsa (3.0-4.0 mag)',8:'Pessima (>4.0 mag)'};
+
+      const cloudLabel = cloudMap[now.cloudcover] || 'N/D';
+      const seeingLabel = seeingMap[now.seeing] || 'N/D';
+      const transpLabel = transpMap[now.transparency] || 'N/D';
+      const seeingColor = now.seeing <= 2 ? 'var(--ok)' : (now.seeing <= 4 ? 'var(--warn)' : 'var(--bad)');
+      const transpColor = now.transparency <= 2 ? 'var(--ok)' : (now.transparency <= 4 ? 'var(--warn)' : 'var(--bad)');
+      const cloudColor = now.cloudcover <= 3 ? 'var(--ok)' : (now.cloudcover <= 5 ? 'var(--warn)' : 'var(--bad)');
+
+      card.innerHTML = `
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>☁️ Nuvolosità</label>
+            <div class="val" style="font-size:14px;color:${cloudColor};">${cloudLabel}</div>
+          </div>
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>🌪️ Seeing</label>
+            <div class="val" style="font-size:14px;color:${seeingColor};">${seeingLabel}</div>
+          </div>
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>🔭 Trasparenza</label>
+            <div class="val" style="font-size:14px;color:${transpColor};">${transpLabel}</div>
+          </div>
         </div>
-        <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-          <label>🌪️ Seeing</label>
-          <div class="val" style="font-size:14px;color:${seeingColor};">${seeingLabel}</div>
-        </div>
-        <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-          <label>🔭 Trasparenza</label>
-          <div class="val" style="font-size:14px;color:${transpColor};">${transpLabel}</div>
-        </div>
-      </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:right;">
-        7Timer! (via proxy) — Init: ${data.init || '—'} UTC · Lat ${state.lat.toFixed(3)}, Lon ${state.lon.toFixed(3)}
-      </div>`;
-    state.astroFetched = true;
-  } catch(e) {
-    console.warn('7Timer proxy err', e);
-    card.innerHTML = `<div style="color:var(--bad);padding:10px">❌ 7Timer: ${e.message}.<br>
-      <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:6px 12px" onclick="fetchAstroWeather()">Riprova</button></div>`;
+        <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:right;">
+          7Timer! (v3.6, via proxy) — Init: ${data.init || '—'} UTC · Lat ${state.lat.toFixed(3)}, Lon ${state.lon.toFixed(3)}
+        </div>`;
+      state.astroFetched = true;
+      return; // Successo, esci dalla funzione
+    } catch (e) {
+      lastError = e;
+      console.warn('Tentativo proxy fallito:', proxiedUrl, e);
+      // Continua con il prossimo proxy
+    }
   }
+
+  // Se tutti i proxy falliscono, mostra l'errore finale
+  card.innerHTML = `<div style="color:var(--bad);padding:10px">❌ 7Timer non raggiungibile dopo molteplici tentativi.<br>
+    <small>Ultimo errore: ${lastError.message}</small><br>
+    <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:6px 12px" onclick="fetchAstroWeather()">Riprova</button></div>`;
 }
 
 function startWeatherAutoUpdate(){
