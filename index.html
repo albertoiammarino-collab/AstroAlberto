@@ -120,11 +120,23 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
 .cat-item:hover{border-color:var(--accent);box-shadow:0 6px 20px var(--glow)}
 .cat-name{font-weight:700;color:var(--text);font-size:14px}
 .cat-sub{font-size:11px;color:var(--muted)}
-#weather-map{width:100%;height:400px;border-radius:14px;border:1px solid var(--line);background:#000}
 .owm-key-box{display:flex;gap:8px;align-items:center;margin-bottom:15px;flex-wrap:wrap}
 .owm-key-box input{flex:1;min-width:220px;padding:10px}
 .weather-auto-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--ok);background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);padding:4px 10px;border-radius:20px}
 #js-error-banner{display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#f87171;color:#000;padding:12px;text-align:center;font-weight:bold;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+
+/* Stili specifici per la mappa meteo come da immagine */
+.weather-map-wrapper{background:#0d121c;border-radius:14px;padding:15px;border:1px solid var(--line);margin-top:20px;}
+.weather-map-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;}
+.weather-map-title{font-family:'Orbitron',sans-serif;font-size:14px;color:var(--accent);display:flex;align-items:center;gap:8px;font-weight:bold;}
+.weather-map-btn{background:transparent;border:1px solid var(--line);color:var(--text);padding:6px 12px;border-radius:20px;font-size:11px;cursor:pointer;transition:0.2s;}
+.weather-map-btn:hover{border-color:var(--accent);color:var(--accent);}
+.weather-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:15px;}
+.weather-tab{padding:8px 16px;border-radius:20px;border:1px solid transparent;background:#161c28;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:0.2s;}
+.weather-tab:hover{color:var(--text);}
+.weather-tab.active{background:var(--accent);color:#000;font-weight:bold;}
+#weather-map{width:100%;height:400px;border-radius:10px;border:1px solid var(--line);background:#000;z-index:1;}
+
 @media(max-width:600px){.detail-grid{grid-template-columns:1fr}.time-slider-inline{flex-wrap:wrap}.time-display-inline{width:100%;text-align:center}#weather-map{height:300px}}
 </style>
 </head>
@@ -179,48 +191,6 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
             <option value="45.4408,12.3155,Venezia">Venezia</option>
             <option value="44.4056,8.9463,Genova">Genova</option>
             <option value="39.2238,9.1217,Cagliari">Cagliari</option>
-            <option value="45.4384,10.9916,Verona">Verona</option>
-            <option value="38.1938,15.5540,Messina">Messina</option>
-            <option value="45.4064,11.8768,Padova">Padova</option>
-            <option value="45.6495,13.7768,Trieste">Trieste</option>
-            <option value="40.4644,17.2470,Taranto">Taranto</option>
-            <option value="45.5416,10.2118,Brescia">Brescia</option>
-            <option value="44.8015,10.3279,Parma">Parma</option>
-            <option value="44.6471,10.9252,Modena">Modena</option>
-            <option value="43.1107,12.3908,Perugia">Perugia</option>
-            <option value="44.4184,12.2035,Ravenna">Ravenna</option>
-            <option value="43.5485,10.3106,Livorno">Livorno</option>
-            <option value="44.0678,12.5695,Rimini">Rimini</option>
-            <option value="40.6824,14.7681,Salerno">Salerno</option>
-            <option value="44.8381,11.6198,Ferrara">Ferrara</option>
-            <option value="41.4676,12.9037,Latina">Latina</option>
-            <option value="37.0755,15.2866,Siracusa">Siracusa</option>
-            <option value="42.4618,14.2161,Pescara">Pescara</option>
-            <option value="45.6983,9.6773,Bergamo">Bergamo</option>
-            <option value="46.0679,11.1211,Trento">Trento</option>
-            <option value="45.5455,11.5354,Vicenza">Vicenza</option>
-            <option value="46.4983,11.3548,Bolzano">Bolzano</option>
-            <option value="43.6158,13.5189,Ancona">Ancona</option>
-            <option value="46.0711,13.2346,Udine">Udine</option>
-            <option value="40.3515,18.1750,Lecce">Lecce</option>
-            <option value="44.1024,9.8241,La Spezia">La Spezia</option>
-            <option value="43.7161,10.3966,Pisa">Pisa</option>
-            <option value="40.6327,17.9418,Brindisi">Brindisi</option>
-            <option value="45.6667,12.2500,Treviso">Treviso</option>
-            <option value="45.8090,8.8510,Como">Como</option>
-            <option value="42.7667,11.1167,Grosseto">Grosseto</option>
-            <option value="45.8206,8.8251,Varese">Varese</option>
-            <option value="41.0747,14.3328,Caserta">Caserta</option>
-            <option value="42.3500,13.4000,L'Aquila">L'Aquila</option>
-            <option value="38.0167,12.5333,Trapani">Trapani</option>
-            <option value="42.4167,12.1000,Viterbo">Viterbo</option>
-            <option value="39.3000,16.2500,Cosenza">Cosenza</option>
-            <option value="40.6333,15.8000,Potenza">Potenza</option>
-            <option value="40.6667,16.6000,Matera">Matera</option>
-            <option value="37.3167,13.5833,Agrigento">Agrigento</option>
-            <option value="46.1333,12.2167,Belluno">Belluno</option>
-            <option value="45.7333,7.3167,Aosta">Aosta</option>
-            <option value="41.5667,14.6667,Campobasso">Campobasso</option>
           </select>
         </div>
         <div><label>Latitudine</label><input type="number" id="lat" value="41.9028" step="0.0001"></div>
@@ -335,28 +305,43 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
     </div>
   </div>
 
+  <!-- SCHEDA METEO AGGIORNATA CON STRUTTURA DA IMMAGINE -->
   <div id="tab-weather" class="tab-content">
     <div class="card">
       <h2>⛅ Meteo & Qualità</h2>
+      
       <div class="owm-key-box">
-        <input type="text" id="owm-api-key" placeholder="API Key OpenWeatherMap (gratuita su openweathermap.org)">
+        <input type="text" id="owm-api-key" placeholder="API Key OpenWeatherMap (gratuita)">
         <button class="btn" onclick="saveOwmKey()">Salva</button>
         <span class="weather-auto-badge">🔄 Auto 10 min</span>
-      </div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button class="btn" onclick="fetchWeather()">Aggiorna Meteo</button>
-        <span class="msg" id="msg-weather">In attesa...</span>
+        <span class="msg" id="msg-weather" style="margin-left:auto;">In attesa...</span>
       </div>
 
-      <h3 style="color:var(--accent);margin-top:25px;font-size:16px;border-top:1px solid var(--line);padding-top:15px;font-family:'Orbitron',sans-serif">🔭 Meteo Astronomico (Seeing & Trasparenza)</h3>
+      <h3 style="color:var(--accent);margin-top:20px;font-size:16px;border-top:1px solid var(--line);padding-top:15px;font-family:'Orbitron',sans-serif">🔭 Meteo Astronomico (Seeing & Trasparenza)</h3>
       <div id="astro-weather-card" style="margin-bottom:15px;">
         <div style="color:var(--muted);padding:10px">I dati astronomici verranno caricati automaticamente.</div>
       </div>
 
       <div class="grid" id="weather-grid" style="margin-top:20px"></div>
 
-      <div style="margin-top:15px">
-        <h3 style="color:var(--accent);margin-bottom:10px;font-family:'Orbitron',sans-serif;font-size:15px">🗺️ Mappa Precipitazioni e Nuvole</h3>
+      <!-- Struttura Mappa Meteo come da immagine -->
+      <div class="weather-map-wrapper">
+        <div class="weather-map-header">
+          <div class="weather-map-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            MAPPA METEO
+          </div>
+          <button class="weather-map-btn" onclick="getLocation()">Imposta posizione</button>
+        </div>
+        
+        <div class="weather-tabs" id="weatherLayers">
+          <button class="weather-tab active" onclick="setWeatherLayer('clouds', this)">Nuvole</button>
+          <button class="weather-tab" onclick="setWeatherLayer('precipitation', this)">Precipitazioni</button>
+          <button class="weather-tab" onclick="setWeatherLayer('wind', this)">Vento</button>
+          <button class="weather-tab" onclick="setWeatherLayer('temp', this)">Temperatura</button>
+          <button class="weather-tab" onclick="setWeatherLayer('pressure', this)">Pressione</button>
+        </div>
+
         <div id="weather-map"></div>
       </div>
 
@@ -391,7 +376,7 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
 
 <script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="./app.js?v=7"></script>
+<script src="./app.js?v=8"></script>
 
 <script>
 window.addEventListener('error', function(e){
@@ -412,7 +397,7 @@ setTimeout(function(){
 window.addEventListener('load', function(){
   setTimeout(function(){
     if('serviceWorker' in navigator && window.__appLoaded){
-      navigator.serviceWorker.register('./service-worker.js?v=7', {scope: './'})
+      navigator.serviceWorker.register('./service-worker.js?v=8', {scope: './'})
         .then(function(r){ console.log('SW registrato:', r.scope); })
         .catch(function(e){ console.warn('SW errore:', e); });
     }
