@@ -1,4 +1,4 @@
-const CACHE = 'alberto-astro-v3';
+const CACHE = 'alberto-astro-v6';
 const ASSETS = ['./', './index.html', './app.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
@@ -18,22 +18,19 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-
-  // Bypassa CDN e API esterne
+  // Bypassa la cache per tutte le API esterne (incluso il proxy)
   if (url.hostname.includes('openweathermap') ||
-      url.hostname.includes('open-meteo') ||
+      url.hostname.includes('rainviewer') ||
+      url.hostname.includes('allorigins') ||   // proxy CORS
+      url.hostname.includes('7timer') ||
+      url.hostname.includes('tile.openstreetmap') ||
       url.hostname.includes('jsdelivr') ||
       url.hostname.includes('unpkg') ||
-      url.hostname.includes('arcgisonline') ||
-      url.hostname.includes('basemaps') ||
-      url.hostname.includes('cartocdn') ||
       url.hostname.includes('fonts.') ||
       url.hostname.includes('ipapi.co') ||
       url.hostname.includes('ipinfo.io')) {
     return;
   }
-
-  // Network-first per HTML e JS (per avere sempre l'ultima versione)
   if (e.request.mode === 'navigate' ||
       url.pathname.endsWith('.html') ||
       url.pathname.endsWith('.js')) {
@@ -50,7 +47,5 @@ self.addEventListener('fetch', e => {
     );
     return;
   }
-
-  // Cache-first per tutto il resto (immagini, font, ecc.)
   e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
 });
