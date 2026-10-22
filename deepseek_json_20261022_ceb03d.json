@@ -1,0 +1,20 @@
+{
+  "name": "Alberto Astro",
+  "short_name": "AlbertoAstro",
+  "description": "Astronomia, mappa del cielo, catalogo oggetti, meteo e osservazione",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#03050a",
+  "theme_color": "#d4af37",
+  "lang": "it",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
