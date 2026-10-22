@@ -1,5 +1,5 @@
 /* ============================================================
-   ALBERTO ASTRO - App astronomica (v9 - Open-Meteo)
+   ALBERTO ASTRO - App astronomica (v10 - OSM basemap)
    ============================================================ */
 'use strict';
 
@@ -881,9 +881,9 @@ function initWeatherMap(){
       zoomControl:true
     });
 
-    // BASE MAPPA IN BIANCO E NERO (CartoDB Positron) - Risparmia dati
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
-      attribution:'&copy; OpenStreetMap &copy; CartoDB',
+    // BASE MAPPA: OpenStreetMap standard (gratuita, nessuna chiave richiesta)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'&copy; OpenStreetMap contributors',
       maxZoom:19
     }).addTo(state.weatherMap);
 
@@ -904,8 +904,6 @@ function updateWeatherLayer(){
   
   const layerType = state.activeWeatherLayer;
   if(!state.owmApiKey){
-    // Se non c'è la chiave OWM, non possiamo mostrare i layer meteo sovrapposti.
-    // I dati testuali di Open-Meteo funzionano comunque.
     return;
   }
 
@@ -920,7 +918,7 @@ function updateWeatherLayer(){
 
   state.radarLayer=L.tileLayer(url,{
     attribution:'&copy; OpenWeatherMap',
-    maxZoom:8, // Limite per evitare errori di zoom
+    maxZoom:8,
     opacity:0.7
   }).addTo(state.weatherMap);
 }
@@ -942,7 +940,7 @@ function setWeatherLayer(layer, btn){
   updateWeatherLayer();
 }
 
-// ---------- METEO: OPEN-METEO (Sostituisce 7Timer) ----------
+// ---------- METEO: OPEN-METEO ----------
 async function fetchAstroWeather(){
   const card = document.getElementById('astro-weather-card');
   if(!card) return;
