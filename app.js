@@ -1,5 +1,5 @@
 /* ============================================================
-   ALBERTO ASTRO - App astronomica (v5)
+   ALBERTO ASTRO - App astronomica (v6 - fix CORS 7Timer)
    ============================================================ */
 'use strict';
 
@@ -963,33 +963,38 @@ async function fetchWeather(){
     m.innerText='❌ OWM: '+e.message+' — (vedi comunque la sezione Meteo Astronomico qui sotto)';m.className='msg';m.style.color='var(--bad)';
   }
 }
+
+// ---- 7Timer con proxy CORS ----
 async function fetchAstroWeather(){
   const card=document.getElementById('astro-weather-card');
   if(!card) return;
   card.innerHTML='<div style="color:var(--muted);padding:10px">⏳ Caricamento dati astronomici da 7Timer...</div>';
   try{
-    const url=`https://www.7timer.info/bin/api.pl?lon=${state.lon}&lat=${state.lat}&product=astro&output=json`;
-    console.log('7Timer fetch:', url);
-    const res=await fetch(url,{cache:'no-store'});
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const raw=await res.text();
+    const directUrl = `https://www.7timer.info/bin/api.pl?lon=${state.lon}&lat=${state.lat}&product=astro&output=json`;
+    // Usa un proxy CORS pubblico per aggirare il blocco del browser
+    const proxiedUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
+    console.log('7Timer proxy URL:', proxiedUrl);
+    const res = await fetch(proxiedUrl, { cache: 'no-store' });
+    if(!res.ok) throw new Error('Proxy HTTP ' + res.status);
+    const text = await res.text();
     let data;
-    try{ data=JSON.parse(raw); }catch(err){ throw new Error('Risposta non JSON: '+raw.substring(0,80)); }
-    if(!data.dataseries || data.dataseries.length===0) throw new Error('Dataseries vuota');
-    const now=data.dataseries[0];
+    try { data = JSON.parse(text); } catch(e) { throw new Error('Risposta non JSON: ' + text.substring(0, 100)); }
+    if(!data.dataseries || data.dataseries.length === 0) throw new Error('Dataseries vuota');
+
+    const now = data.dataseries[0];
 
     const cloudMap={1:'Sereno (0-6%)',2:'Poco nuvoloso (6-19%)',3:'Parzialmente nuvoloso (19-31%)',4:'Nuvoloso (31-44%)',5:'Molto nuvoloso (44-56%)',6:'Coperto (56-69%)',7:'Coperto (69-81%)',8:'Coperto (81-94%)',9:'Totalmente coperto (94-100%)'};
     const seeingMap={1:'Eccellente (≤0.5")',2:'Buono (0.5-0.75")',3:'Discreto (0.75-1")',4:'Mediocre (1-1.25")',5:'Scarso (1.25-1.5")',6:'Scarso (1.5-2")',7:'Molto scarso (2-2.5")',8:'Pessimo (>2.5")'};
     const transpMap={1:'Eccellente (≤0.3 mag)',2:'Buona (0.3-0.6 mag)',3:'Discreta (0.6-1.0 mag)',4:'Mediocre (1.0-1.5 mag)',5:'Scarsa (1.5-2.0 mag)',6:'Scarsa (2.0-3.0 mag)',7:'Molto scarsa (3.0-4.0 mag)',8:'Pessima (>4.0 mag)'};
 
-    const cloudLabel=cloudMap[now.cloudcover]||'N/D';
-    const seeingLabel=seeingMap[now.seeing]||'N/D';
-    const transpLabel=transpMap[now.transparency]||'N/D';
-    const seeingColor = now.seeing<=2?'var(--ok)':(now.seeing<=4?'var(--warn)':'var(--bad)');
-    const transpColor = now.transparency<=2?'var(--ok)':(now.transparency<=4?'var(--warn)':'var(--bad)');
-    const cloudColor = now.cloudcover<=3?'var(--ok)':(now.cloudcover<=5?'var(--warn)':'var(--bad)');
+    const cloudLabel = cloudMap[now.cloudcover] || 'N/D';
+    const seeingLabel = seeingMap[now.seeing] || 'N/D';
+    const transpLabel = transpMap[now.transparency] || 'N/D';
+    const seeingColor = now.seeing <= 2 ? 'var(--ok)' : (now.seeing <= 4 ? 'var(--warn)' : 'var(--bad)');
+    const transpColor = now.transparency <= 2 ? 'var(--ok)' : (now.transparency <= 4 ? 'var(--warn)' : 'var(--bad)');
+    const cloudColor = now.cloudcover <= 3 ? 'var(--ok)' : (now.cloudcover <= 5 ? 'var(--warn)' : 'var(--bad)');
 
-    card.innerHTML=`
+    card.innerHTML = `
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
         <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
           <label>☁️ Nuvolosità</label>
@@ -1005,15 +1010,16 @@ async function fetchAstroWeather(){
         </div>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:right;">
-        7Timer! — Init: ${data.init||'—'} UTC · Lat ${state.lat.toFixed(3)}, Lon ${state.lon.toFixed(3)}
+        7Timer! (via proxy) — Init: ${data.init || '—'} UTC · Lat ${state.lat.toFixed(3)}, Lon ${state.lon.toFixed(3)}
       </div>`;
     state.astroFetched = true;
-  }catch(e){
-    console.warn('7Timer err',e);
-    card.innerHTML=`<div style="color:var(--bad);padding:10px">❌ 7Timer: ${e.message}.<br>
+  } catch(e) {
+    console.warn('7Timer proxy err', e);
+    card.innerHTML = `<div style="color:var(--bad);padding:10px">❌ 7Timer: ${e.message}.<br>
       <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:6px 12px" onclick="fetchAstroWeather()">Riprova</button></div>`;
   }
 }
+
 function startWeatherAutoUpdate(){
   if(state.weatherTimer)clearInterval(state.weatherTimer);
   state.weatherTimer=setInterval(()=>{
