@@ -1,5 +1,9 @@
 /* ============================================================
-   ALBERTO ASTRO - App astronomica (v10 - OSM basemap)
+   ALBERTO ASTRO - App astronomica (v11)
+   - 7Timer! con fallback multi-proxy per seeing/trasparenza
+   - Mappa meteo dinamica sulla posizione attuale (GPS/IP/manuale)
+   - Radar RainViewer gratuito (no API key)
+   - Open-Meteo per nuvole/visibilità/vento/temp
    ============================================================ */
 'use strict';
 
@@ -21,7 +25,7 @@ const state = {
   catalogFilter: 'all', catalogDetailObj: null,
   weatherMap: null, weatherMarker: null,
   owmApiKey: localStorage.getItem('albertoastro_owm_key') || '',
-  weatherTimer: null, radarLayer: null,
+  weatherTimer: null, radarLayer: null, rainViewerLayer: null,
   astroFetched: false,
   activeWeatherLayer: 'clouds'
 };
@@ -394,9 +398,10 @@ function updateAll(){
   renderSunMoon();renderSkyQuality();renderQuality();
   if(document.getElementById('tab-sky').classList.contains('active'))onSliderChange();
   if(document.getElementById('tab-tonight').classList.contains('active'))renderTonight();
+  // 🔑 Ricentra la mappa sulla nuova posizione (GPS/IP/manuale)
+  if(state.weatherMap)centerWeatherMap();
   const m=document.getElementById('msg-coord');
   m.innerText="✅ Aggiornato";m.className="msg success";
-  if(state.weatherMap)centerWeatherMap();
 }
 function loadCity(){
   const v=document.getElementById('citySelect').value;if(!v)return;
@@ -862,37 +867,135 @@ function handleLogoUpload(event){
   reader.readAsDataURL(file);
 }
 
-// ---------- METEO: MAPPA E DATI ----------
+/* ============================================================
+   METEO — Mappa dinamica + 7Timer! + Open-Meteo + RainViewer
+   ============================================================ */
 
+// Calcola i bounds attorno a una coordinata (span in gradi ~40 km)
+function getBoundsAround(lat, lon, spanDeg = 0.35) {
+  const latSpan = spanDeg;
+  const lonSpan = spanDeg / Math.max(0.2, Math.cos(rad(lat)));
+  return [
+    [lat - latSpan, lon - lonSpan],
+    [lat + latSpan, lon + lonSpan]
+  ];
+}
+
+// ---------- 7Timer! (Seeing & Trasparenza) con fallback multi-proxy ----------
+async function fetch7TimerData(lat, lon) {
+  const target = `https://www.7timer.info/bin/api.pl?lon=${lon}&lat=${lat}&product=astro&output=json`;
+
+  const attempts = [
+    target, // 1. Diretta
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`, // 2. codetabs
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,     // 3. allorigins
+    `https://corsproxy.io/?${encodeURIComponent(target)}`                   // 4. corsproxy
+  ];
+
+  let data = null;
+  for (const url of attempts) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) continue;
+      const json = await res.json();
+      if (json && json.dataseries && json.dataseries.length > 0) {
+        data = json;
+        console.log('7Timer! OK tramite:', url.startsWith('https://www.7timer') ? 'diretto' : 'proxy');
+        break;
+      }
+    } catch (e) {
+      console.warn('7Timer! tentativo fallito:', url.slice(0, 50) + '...', e.message);
+    }
+  }
+
+  if (!data) return null;
+
+  const point = data.dataseries[0];
+
+  const seeingMap = {
+    1:'Eccellente (<0.5")',2:'Buono (0.5-0.75")',3:'Discreto (0.75-1")',
+    4:'Mediocre (1-1.25")',5:'Scadente (1.25-1.5")',6:'Scarso (1.5-2")',
+    7:'Pessimo (2-2.5")',8:'Inutilizzabile (>2.5")'
+  };
+  const transparencyMap = {
+    1:'Pessima (<0.3)',2:'Scarsa (0.3-0.4)',3:'Mediocre (0.4-0.5)',
+    4:'Discreta (0.5-0.6)',5:'Buona (0.6-0.7)',6:'Ottima (0.7-0.8)',
+    7:'Eccellente (0.8-0.9)',8:'Perfetta (>0.9)'
+  };
+  const cloudMap = {
+    1:'0-6%',2:'6-19%',3:'19-31%',4:'31-44%',5:'44-56%',
+    6:'56-69%',7:'69-81%',8:'81-94%',9:'94-100%'
+  };
+  const seeingColors = {1:'var(--ok)',2:'var(--ok)',3:'var(--ok)',4:'var(--warn)',5:'var(--warn)',6:'var(--bad)',7:'var(--bad)',8:'var(--bad)'};
+  const transpColors = {1:'var(--bad)',2:'var(--bad)',3:'var(--warn)',4:'var(--warn)',5:'var(--ok)',6:'var(--ok)',7:'var(--ok)',8:'var(--ok)'};
+
+  return {
+    seeing: seeingMap[point.seeing] || `Indice ${point.seeing}`,
+    seeingColor: seeingColors[point.seeing] || 'var(--text)',
+    transparency: transparencyMap[point.transparency] || `Indice ${point.transparency}`,
+    transparencyColor: transpColors[point.transparency] || 'var(--text)',
+    cloudCover: cloudMap[point.cloudcover] || `Indice ${point.cloudcover}`,
+    raw: point
+  };
+}
+
+// ---------- Mappa meteo DINAMICA (segue la posizione attuale) ----------
 function initWeatherMap(){
   const el=document.getElementById('weather-map');
   if(!el || typeof L==='undefined'){console.warn('Leaflet o #weather-map mancanti');return;}
+
   if(state.weatherMap){
     state.weatherMap.invalidateSize();
     centerWeatherMap();
     return;
   }
+
   try{
+    // 🔑 Usa la posizione ATTUALE (GPS/IP/manuale), MAI hardcoded
+    const center = [state.lat, state.lon];
+    const bounds = getBoundsAround(state.lat, state.lon);
+
     state.weatherMap=L.map('weather-map',{
-      center:[state.lat,state.lon],
-      zoom:8,
-      minZoom:2,
-      maxZoom:10,
-      zoomControl:true
+      center: center,
+      zoom: 11,
+      minZoom: 9,
+      maxZoom: 14,
+      maxBounds: bounds,
+      maxBoundsViscosity: 1.0,
+      zoomControl: true
     });
 
-    // BASE MAPPA: OpenStreetMap standard (gratuita, nessuna chiave richiesta)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
       attribution:'&copy; OpenStreetMap contributors',
       maxZoom:19
     }).addTo(state.weatherMap);
 
-    state.weatherMarker=L.marker([state.lat,state.lon]).addTo(state.weatherMap)
+    state.weatherMarker=L.marker(center).addTo(state.weatherMap)
       .bindPopup(`📍 ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`).openPopup();
-    
+
+    // Radar precipitazioni gratuito (RainViewer, no API key)
+    addRainViewerLayer();
+
     updateWeatherLayer();
     setTimeout(()=>state.weatherMap.invalidateSize(), 100);
   }catch(e){console.error('initWeatherMap err',e);}
+}
+
+// ---------- RainViewer (radar precipitazioni, gratuito, no key) ----------
+async function addRainViewerLayer(){
+  if(!state.weatherMap || state.rainViewerLayer) return;
+  try{
+    const res = await fetch('https://api.rainviewer.com/public/weather-maps.json', { cache:'no-store' });
+    if(!res.ok) return;
+    const data = await res.json();
+    const frames = data.radar && data.radar.past;
+    if(!frames || frames.length === 0) return;
+    const path = frames[frames.length-1].path;
+    state.rainViewerLayer = L.tileLayer(
+      `https://tilecache.rainviewer.com${path}/256/{z}/{x}/{y}/2/1_1.png`,
+      { opacity: 0.55, maxZoom: 10, attribution: '&copy; RainViewer' }
+    ).addTo(state.weatherMap);
+  }catch(e){ console.warn('RainViewer err', e); }
 }
 
 function updateWeatherLayer(){
@@ -901,11 +1004,9 @@ function updateWeatherLayer(){
     state.weatherMap.removeLayer(state.radarLayer);
     state.radarLayer=null;
   }
-  
+
   const layerType = state.activeWeatherLayer;
-  if(!state.owmApiKey){
-    return;
-  }
+  if(!state.owmApiKey) return;
 
   let url='';
   switch(layerType){
@@ -923,11 +1024,18 @@ function updateWeatherLayer(){
   }).addTo(state.weatherMap);
 }
 
+// 🔑 Ricentra la mappa sulla posizione attuale (chiamata da updateAll su GPS/IP/manuale)
 function centerWeatherMap(){
   if(!state.weatherMap) return;
-  state.weatherMap.setView([state.lat,state.lon], 8);
+  const center = [state.lat, state.lon];
+  const bounds = getBoundsAround(state.lat, state.lon);
+
+  // Aggiorna i bounds perché la posizione è cambiata (es. GPS)
+  state.weatherMap.setMaxBounds(bounds);
+  state.weatherMap.setView(center, 11);
+
   if(state.weatherMarker){
-    state.weatherMarker.setLatLng([state.lat,state.lon]);
+    state.weatherMarker.setLatLng(center);
     state.weatherMarker.setPopupContent(`📍 ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`);
   }
   setTimeout(()=>state.weatherMap.invalidateSize(), 100);
@@ -940,71 +1048,102 @@ function setWeatherLayer(layer, btn){
   updateWeatherLayer();
 }
 
-// ---------- METEO: OPEN-METEO ----------
+// ---------- Meteo astronomico (Open-Meteo + 7Timer! in parallelo) ----------
 async function fetchAstroWeather(){
   const card = document.getElementById('astro-weather-card');
   if(!card) return;
-  card.innerHTML = '<div style="color:var(--muted);padding:10px">⏳ Caricamento dati meteo da Open-Meteo...</div>';
+  card.innerHTML = '<div style="color:var(--muted);padding:10px">⏳ Caricamento dati astronomici...</div>';
 
-  try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${state.lat}&longitude=${state.lon}&hourly=temperature_2m,cloud_cover,visibility,wind_speed_10m,wind_gusts_10m&forecast_days=2&timezone=auto`;
-    
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
+  const [openMeteoRes, sevenTimer] = await Promise.allSettled([
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${state.lat}&longitude=${state.lon}&hourly=temperature_2m,cloud_cover,visibility,wind_speed_10m,wind_gusts_10m&forecast_days=2&timezone=auto`, { cache:'no-store' }),
+    fetch7TimerData(state.lat, state.lon)
+  ]);
 
-    if (!data.hourly || !data.hourly.time) throw new Error('Dati orari non disponibili');
+  let omData = null;
+  if(openMeteoRes.status === 'fulfilled' && openMeteoRes.value.ok){
+    try{ omData = await openMeteoRes.value.json(); }catch(e){}
+  }
+  const st = sevenTimer.status === 'fulfilled' ? sevenTimer.value : null;
 
+  let html = '';
+
+  // --- Sezione Open-Meteo ---
+  if(omData && omData.hourly && omData.hourly.time){
     const now = new Date();
-    let bestIndex = 0;
-    let minDiff = Infinity;
-    data.hourly.time.forEach((t, i) => {
+    let bestIndex = 0, minDiff = Infinity;
+    omData.hourly.time.forEach((t,i)=>{
       const diff = Math.abs(new Date(t) - now);
-      if (diff < minDiff) { minDiff = diff; bestIndex = i; }
+      if(diff < minDiff){ minDiff = diff; bestIndex = i; }
     });
-
-    const current = {
-      temp: data.hourly.temperature_2m[bestIndex],
-      clouds: data.hourly.cloud_cover[bestIndex],
-      visibility: data.hourly.visibility[bestIndex],
-      wind: data.hourly.wind_speed_10m[bestIndex],
-      gusts: data.hourly.wind_gusts_10m[bestIndex]
+    const cur = {
+      temp: omData.hourly.temperature_2m[bestIndex],
+      clouds: omData.hourly.cloud_cover[bestIndex],
+      visibility: omData.hourly.visibility[bestIndex],
+      wind: omData.hourly.wind_speed_10m[bestIndex],
+      gusts: omData.hourly.wind_gusts_10m[bestIndex]
     };
+    state.clouds = cur.clouds;
 
-    const cloudColor = current.clouds < 30 ? 'var(--ok)' : (current.clouds < 70 ? 'var(--warn)' : 'var(--bad)');
-    const visColor = current.visibility > 20000 ? 'var(--ok)' : (current.visibility > 10000 ? 'var(--warn)' : 'var(--bad)');
-    const windColor = current.wind < 15 ? 'var(--ok)' : (current.wind < 30 ? 'var(--warn)' : 'var(--bad)');
+    const cloudColor = cur.clouds<30?'var(--ok)':(cur.clouds<70?'var(--warn)':'var(--bad)');
+    const visColor = cur.visibility>20000?'var(--ok)':(cur.visibility>10000?'var(--warn)':'var(--bad)');
+    const windColor = cur.wind<15?'var(--ok)':(cur.wind<30?'var(--warn)':'var(--bad)');
 
-    card.innerHTML = `
+    html += `
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
         <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
           <label>☁️ Nuvole</label>
-          <div class="val" style="font-size:16px;color:${cloudColor};">${current.clouds.toFixed(0)}%</div>
+          <div class="val" style="font-size:16px;color:${cloudColor};">${cur.clouds.toFixed(0)}%</div>
         </div>
         <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
           <label>👁️ Visibilità</label>
-          <div class="val" style="font-size:16px;color:${visColor};">${(current.visibility/1000).toFixed(1)} km</div>
+          <div class="val" style="font-size:16px;color:${visColor};">${(cur.visibility/1000).toFixed(1)} km</div>
         </div>
         <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-          <label>💨 Vento (10m)</label>
-          <div class="val" style="font-size:16px;color:${windColor};">${current.wind.toFixed(0)} km/h</div>
-          <div style="font-size:10px;color:var(--muted);">Raffiche: ${current.gusts.toFixed(0)} km/h</div>
+          <label>💨 Vento</label>
+          <div class="val" style="font-size:16px;color:${windColor};">${cur.wind.toFixed(0)} km/h</div>
+          <div style="font-size:10px;color:var(--muted);">Raffiche ${cur.gusts.toFixed(0)} km/h</div>
         </div>
         <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-          <label>🌡️ Temperatura</label>
-          <div class="val" style="font-size:16px;">${current.temp.toFixed(1)}°C</div>
+          <label>🌡️ Temp</label>
+          <div class="val" style="font-size:16px;">${cur.temp.toFixed(1)}°C</div>
         </div>
-      </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:right;">
-        Dati Open-Meteo · Lat ${state.lat.toFixed(3)}, Lon ${state.lon.toFixed(3)}
       </div>`;
-    
-    state.astroFetched = true;
-  } catch(e) {
-    console.warn('Open-Meteo err', e);
-    card.innerHTML = `<div style="color:var(--bad);padding:10px">❌ Open-Meteo: ${e.message}.<br>
-      <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;padding:6px 12px" onclick="fetchAstroWeather()">Riprova</button></div>`;
+  } else {
+    html += `<div style="color:var(--bad);padding:10px;">❌ Open-Meteo non disponibile.</div>`;
   }
+
+  // --- Sezione 7Timer! ---
+  if(st){
+    html += `
+      <div style="margin-top:15px;padding-top:15px;border-top:1px solid var(--line);">
+        <h4 style="color:var(--accent);font-family:'Orbitron';font-size:14px;margin-bottom:10px;">
+          🔭 7Timer! — Seeing &amp; Trasparenza (prossime 3 h)
+        </h4>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>Seeing</label>
+            <div class="val" style="font-size:13px;color:${st.seeingColor};">${st.seeing}</div>
+          </div>
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>Trasparenza</label>
+            <div class="val" style="font-size:13px;color:${st.transparencyColor};">${st.transparency}</div>
+          </div>
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>Nuvolosità (7Timer)</label>
+            <div class="val" style="font-size:13px;">${st.cloudCover}</div>
+          </div>
+        </div>
+      </div>`;
+  } else {
+    html += `<div style="color:var(--warn);padding:10px;margin-top:12px;">⚠️ Seeing/Trasparenza (7Timer!) non disponibili al momento. I proxy gratuiti potrebbero essere saturi: riprova tra 1-2 minuti.</div>`;
+  }
+
+  html += `<div style="font-size:10px;color:var(--muted);margin-top:10px;text-align:right;">
+    📍 Lat ${state.lat.toFixed(3)}, Lon ${state.lon.toFixed(3)} — posizione attuale
+  </div>`;
+
+  card.innerHTML = html;
+  renderQuality();
 }
 
 function startWeatherAutoUpdate(){
