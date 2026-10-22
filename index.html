@@ -308,7 +308,7 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
   <div id="tab-weather" class="tab-content">
     <div class="card">
       <h2>⛅ Meteo & Qualità</h2>
-      
+
       <div class="owm-key-box">
         <input type="text" id="owm-api-key" placeholder="API Key OpenWeatherMap (opzionale, per layer mappa)">
         <button class="btn" onclick="saveOwmKey()">Salva</button>
@@ -316,7 +316,7 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
         <span class="msg" id="msg-weather" style="margin-left:auto;">In attesa...</span>
       </div>
 
-      <h3 style="color:var(--accent);margin-top:20px;font-size:16px;border-top:1px solid var(--line);padding-top:15px;font-family:'Orbitron',sans-serif">🔭 Meteo Astronomico (Open-Meteo)</h3>
+      <h3 style="color:var(--accent);margin-top:20px;font-size:16px;border-top:1px solid var(--line);padding-top:15px;font-family:'Orbitron',sans-serif">🔭 Meteo Astronomico (Open-Meteo + 7Timer!)</h3>
       <div id="astro-weather-card" style="margin-bottom:15px;">
         <div style="color:var(--muted);padding:10px">I dati astronomici verranno caricati automaticamente.</div>
       </div>
@@ -331,7 +331,7 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
           </div>
           <button class="weather-map-btn" onclick="getLocation()">Imposta posizione</button>
         </div>
-        
+
         <div class="weather-tabs" id="weatherLayers">
           <button class="weather-tab active" onclick="setWeatherLayer('clouds', this)">Nuvole</button>
           <button class="weather-tab" onclick="setWeatherLayer('precipitation', this)">Precipitazioni</button>
@@ -374,7 +374,7 @@ canvas#skyCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:n
 
 <script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="./app.js?v=10"></script>
+<script src="./app.js?v=11"></script>
 
 <script>
 window.addEventListener('error', function(e){
@@ -395,7 +395,7 @@ setTimeout(function(){
 window.addEventListener('load', function(){
   setTimeout(function(){
     if('serviceWorker' in navigator && window.__appLoaded){
-      navigator.serviceWorker.register('./service-worker.js?v=10', {scope: './'})
+      navigator.serviceWorker.register('./service-worker.js?v=11', {scope: './'})
         .then(function(r){ console.log('SW registrato:', r.scope); })
         .catch(function(e){ console.warn('SW errore:', e); });
     }
