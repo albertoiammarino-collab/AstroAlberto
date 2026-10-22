@@ -1,18 +1,16 @@
 /* ============================================================
-   ALBERTO ASTRO - App astronomica (v5 - fix meteo/GPS/mappa)
+   ALBERTO ASTRO - App astronomica (v5)
    ============================================================ */
 'use strict';
 
 window.__appLoaded = false;
 
-// ---------- UTILS ----------
 const rad = d => d * Math.PI / 180;
 const deg = r => r * 180 / Math.PI;
 const norm360 = x => ((x % 360) + 360) % 360;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const hasAstro = () => typeof Astronomy !== 'undefined';
 
-// ---------- STATO ----------
 const state = {
   lat: parseFloat(localStorage.getItem('albertoastro_lat')) || 41.9028,
   lon: parseFloat(localStorage.getItem('albertoastro_lon')) || 12.4964,
@@ -33,7 +31,6 @@ const PLANET_SYMBOLS = {Mercury:"☿",Venus:"♀",Mars:"♂",Jupiter:"♃",Satur
 const PLANET_COLORS = {Mercury:"#a8a8a8",Venus:"#f0e68c",Mars:"#ff6347",Jupiter:"#ffd700",Saturn:"#f4e4a1",Uranus:"#87ceeb",Neptune:"#4169e1"};
 const PLANET_IT = {Mercury:"Mercurio",Venus:"Venere",Mars:"Marte",Jupiter:"Giove",Saturn:"Saturno",Uranus:"Urano",Neptune:"Nettuno"};
 
-// ---------- STELLE ----------
 const STARS = [
   {n:"Polaris",ra:37.95,dec:89.26,mag:1.98},{n:"Kochab",ra:222.68,dec:74.16,mag:2.08},
   {n:"Dubhe",ra:165.93,dec:61.75,mag:1.79},{n:"Merak",ra:165.46,dec:56.38,mag:2.37},
@@ -76,7 +73,6 @@ const STARS = [
   {n:"Tejat",ra:97.20,dec:22.51,mag:2.87}
 ];
 
-// ---------- CATALOGO MESSIER ----------
 const MESSIER = {
   "M1":{n:"M1 Granchio",ra:83.63,dec:22.01,type:"Nebulosa",mag:8.4,dist:"6.500 a.l.",desc:"Resto di supernova del 1054."},
   "M2":{n:"M2 Acquario",ra:323.36,dec:-0.82,type:"Ammasso",mag:6.5,dist:"55.000 a.l.",desc:"Ammasso globulare."},
@@ -218,7 +214,6 @@ const CONSTELLATIONS = [
   {name:"Croce del Sud",stars:[{ra:186.65,dec:-63.10},{ra:187.79,dec:-57.11},{ra:191.93,dec:-59.69},{ra:183.79,dec:-58.75}],area:"68°q",season:"Autunno",desc:"Emisfero sud."}
 ];
 
-// ---------- FUNZIONI ASTRONOMICHE ----------
 function getLST(date){
   const jd=date.getTime()/86400000+2440587.5;
   const T=(jd-2451545.0)/36525.0;
@@ -351,7 +346,6 @@ function sqmToDesc(sqm){
   return {label:"Scarsa",badge:"bad"};
 }
 
-// ---------- UI ----------
 function switchTab(id,btn){
   document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(el=>el.classList.remove('active'));
@@ -361,16 +355,12 @@ function switchTab(id,btn){
   if(id==='tab-tonight'){readInputs();renderTonight();}
   if(id==='tab-catalog')renderCatalog();
   if(id==='tab-weather'){
-    // 1) Inizializza la mappa (se non già fatto)
     initWeatherMap();
-    // 2) CRITICO: ricalcola la dimensione del canvas Leaflet dopo che la tab è visibile
     setTimeout(()=>{
       if(state.weatherMap)state.weatherMap.invalidateSize();
       centerWeatherMap();
     }, 200);
-    // 3) Chiama SEMPRE 7Timer (seeing/trasparenza), indipendentemente dalla chiave OWM
     fetchAstroWeather();
-    // 4) Se c'è una chiave OWM, prova anche a prendere il meteo normale
     if(state.owmApiKey)fetchWeather();
   }
 }
@@ -405,7 +395,6 @@ function updateAll(){
   if(document.getElementById('tab-tonight').classList.contains('active'))renderTonight();
   const m=document.getElementById('msg-coord');
   m.innerText="✅ Aggiornato";m.className="msg success";
-  // Se la mappa meteo è aperta, ricentra
   if(state.weatherMap)centerWeatherMap();
 }
 function loadCity(){
@@ -417,7 +406,6 @@ function loadCity(){
   updateAll();
 }
 
-// ---------- GPS ----------
 function applyCoordinates(lat,lon,city,accuracy){
   const latS=parseFloat(lat).toFixed(4);const lonS=parseFloat(lon).toFixed(4);
   document.getElementById('lat').value=latS;document.getElementById('lon').value=lonS;
@@ -432,7 +420,6 @@ function applyCoordinates(lat,lon,city,accuracy){
   m.className="msg success";
   state.sqm=estimateSQM(state.lat,state.lon);
   updateAll();
-  // Aggiorna meteo e astro con la nuova posizione
   if(document.getElementById('tab-weather').classList.contains('active')){
     fetchAstroWeather();
     if(state.owmApiKey)fetchWeather();
@@ -494,7 +481,6 @@ function toggleGPSLive(){
   );
 }
 
-// ---------- RENDER ----------
 function renderSkyQuality(){
   const d=sqmToDesc(state.sqm);
   document.getElementById('sky-quality-grid').innerHTML=`
@@ -578,7 +564,6 @@ function renderTonight(){
   }catch(e){console.error('renderTonight err',e);}
 }
 
-// ---------- CATALOGO ----------
 function buildCatalog(){
   const items=[];
   items.push({id:'sun',name:'Sole',symbol:'☀️',cat:'planet',type:'Stella',desc:'La stella al centro del Sistema Solare.'});
@@ -663,7 +648,6 @@ function catDetailGoto(){
   drawMap();
 }
 
-// ---------- MAPPA CIELO ----------
 const canvas=document.getElementById('skyCanvas');
 const ctx=canvas?canvas.getContext('2d'):null;
 const SIZE=1000;
@@ -842,7 +826,6 @@ function onSliderChange(){
 }
 function setTimeOffset(min){document.getElementById('timeSlider').value=min;onSliderChange();}
 
-// ---------- MODALE SOLARE ----------
 function openSolarModal(){
   const grid=document.getElementById('solar-detail-grid');
   let html='';
@@ -865,7 +848,6 @@ function openSolarModal(){
 }
 function closeSolarModal(){document.getElementById('solar-modal').classList.remove('open');}
 
-// ---------- LOGO ----------
 function handleLogoUpload(event){
   const file=event.target.files[0];if(!file)return;
   const reader=new FileReader();
@@ -879,7 +861,6 @@ function handleLogoUpload(event){
   reader.readAsDataURL(file);
 }
 
-// ---------- METEO: MAPPA ----------
 function initWeatherMap(){
   const el=document.getElementById('weather-map');
   if(!el || typeof L==='undefined'){console.warn('Leaflet o #weather-map mancanti');return;}
@@ -894,19 +875,14 @@ function initWeatherMap(){
       zoom:9,
       zoomControl:true
     });
-    // Base: OpenStreetMap (più chiaro per vedere le sovrapposizioni meteo)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
       attribution:'&copy; OpenStreetMap contributors',
       maxZoom:19
     }).addTo(state.weatherMap);
-    // Marker posizione
     state.weatherMarker=L.marker([state.lat,state.lon]).addTo(state.weatherMap)
       .bindPopup(`📍 ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`).openPopup();
-    // Radar precipitazioni RainViewer (gratis, no key)
     addRainViewerLayer();
-    // Se c'è OWM key valida, prova anche il layer nuvole OWM
     if(state.owmApiKey)addOwmCloudLayer();
-    // Dopo un attimo forza il ricalcolo
     setTimeout(()=>state.weatherMap.invalidateSize(), 100);
   }catch(e){console.error('initWeatherMap err',e);}
 }
@@ -937,7 +913,6 @@ async function addRainViewerLayer(){
 }
 function addOwmCloudLayer(){
   if(!state.owmApiKey || !state.weatherMap) return;
-  // Prova l'endpoint vecchio (funziona solo con account abilitati alle mappe)
   try{
     const cloudUrl = `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${state.owmApiKey}`;
     const layer = L.tileLayer(cloudUrl, {attribution:'&copy; OWM', maxZoom:19, opacity:0.55});
@@ -946,7 +921,6 @@ function addOwmCloudLayer(){
   }catch(e){console.warn('OWM clouds err', e);}
 }
 
-// ---------- METEO: DATI ----------
 function saveOwmKey(){
   const key=document.getElementById('owm-api-key').value.trim();
   if(!key){alert('Inserisci una API Key valida.');return;}
@@ -1050,7 +1024,6 @@ function startWeatherAutoUpdate(){
   },10*60*1000);
 }
 
-// ---------- INIT ----------
 function initApp(){
   try{
     const now=new Date();
@@ -1058,7 +1031,6 @@ function initApp(){
     const iso=new Date(now-off).toISOString().slice(0,16);
     document.getElementById('date').value=iso.split('T')[0];
     document.getElementById('time').value=iso.split('T')[1];
-    // Mostra la posizione salvata nei campi
     document.getElementById('lat').value=state.lat.toFixed(4);
     document.getElementById('lon').value=state.lon.toFixed(4);
     const savedLogo=localStorage.getItem('albertoastro_logo');
@@ -1074,7 +1046,6 @@ function initApp(){
     renderQuality();
     renderCatalog();
     startWeatherAutoUpdate();
-    // Prova a prendere la posizione GPS (in background) e centra mappa quando pronta
     getLocation().catch(e=>console.warn('init getLocation', e));
     console.log('✅ Alberto Astro caricata. Astronomy:', hasAstro(), 'Leaflet:', typeof L);
     window.__appLoaded = true;
@@ -1085,7 +1056,6 @@ function initApp(){
   }
 }
 
-// Ridimensiona la mappa quando la finestra cambia dimensione (mobile orientation)
 window.addEventListener('resize', ()=>{
   if(state.weatherMap) setTimeout(()=>state.weatherMap.invalidateSize(), 100);
 });
