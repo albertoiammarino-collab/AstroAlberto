@@ -1,4 +1,4 @@
-const CACHE = 'alberto-astro-v6';
+const CACHE = 'alberto-astro-v7';
 const ASSETS = ['./', './index.html', './app.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
@@ -18,12 +18,13 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  // Bypassa la cache per tutte le API esterne (incluso il proxy)
+  // Bypassa cache per API esterne e proxy
   if (url.hostname.includes('openweathermap') ||
       url.hostname.includes('rainviewer') ||
-      url.hostname.includes('allorigins') ||   // proxy CORS
+      url.hostname.includes('corsproxy') ||
       url.hostname.includes('7timer') ||
       url.hostname.includes('tile.openstreetmap') ||
+      url.hostname.includes('arcgisonline') ||
       url.hostname.includes('jsdelivr') ||
       url.hostname.includes('unpkg') ||
       url.hostname.includes('fonts.') ||
