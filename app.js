@@ -1,9 +1,12 @@
 /* ============================================================
-   ALBERTO ASTRO - App astronomica (v11)
-   - 7Timer! con fallback multi-proxy per seeing/trasparenza
-   - Mappa meteo dinamica sulla posizione attuale (GPS/IP/manuale)
-   - Radar RainViewer gratuito (no API key)
-   - Open-Meteo per nuvole/visibilità/vento/temp
+   ALBERTO ASTRO - App astronomica (v13)
+   SETUP API ASTRONOMIA VISUALE:
+   - Meteoblue astro-1h        → seeing, jetstream, badlayer
+   - Open-Meteo forecast        → nubi low/mid/high, umidità, vento, temp
+   - Open-Meteo air-quality     → dust, pollini
+   - SQM + Bortle (statico)     → inquinamento luminoso interpolato
+   - Radar RainViewer           → precipitazioni (no key)
+   - 7Timer! RIMOSSO
    ============================================================ */
 'use strict';
 
@@ -20,14 +23,16 @@ const state = {
   lon: parseFloat(localStorage.getItem('albertoastro_lon')) || 12.4964,
   baseTime: new Date(), currentTime: new Date(),
   camAlt: 45, camAz: 0, fov: 80,
-  clouds: 0, target: null, sqm: 21.0,
+  clouds: 0, target: null, sqm: 21.0, bortle: 4,
   gpsLiveWatchId: null, gpsLiveActive: false, gpsAccuracy: null,
   catalogFilter: 'all', catalogDetailObj: null,
   weatherMap: null, weatherMarker: null,
   owmApiKey: localStorage.getItem('albertoastro_owm_key') || '',
+  mbApiKey: localStorage.getItem('albertoastro_mb_key') || '',
   weatherTimer: null, radarLayer: null, rainViewerLayer: null,
   astroFetched: false,
-  activeWeatherLayer: 'clouds'
+  activeWeatherLayer: 'clouds',
+  lastWeather: null
 };
 const _planetCache = { key: null, data: null };
 
@@ -219,6 +224,97 @@ const CONSTELLATIONS = [
   {name:"Croce del Sud",stars:[{ra:186.65,dec:-63.10},{ra:187.79,dec:-57.11},{ra:191.93,dec:-59.69},{ra:183.79,dec:-58.75}],area:"68°q",season:"Autunno",desc:"Emisfero sud."}
 ];
 
+/* ============================================================
+   DATABASE INQUINAMENTO LUMINOSO (30 città italiane + interpolazione)
+   ============================================================ */
+const LIGHT_POLLUTION_CITIES = [
+  {name:"Milano", lat:45.4642, lon:9.1900, sqm:18.1, w:1.0},
+  {name:"Roma", lat:41.9028, lon:12.4964, sqm:18.3, w:1.0},
+  {name:"Napoli", lat:40.8518, lon:14.2681, sqm:18.2, w:0.95},
+  {name:"Torino", lat:45.0703, lon:7.6869, sqm:18.4, w:0.9},
+  {name:"Palermo", lat:38.1157, lon:13.3615, sqm:18.6, w:0.85},
+  {name:"Genova", lat:44.4056, lon:8.9463, sqm:18.5, w:0.85},
+  {name:"Bologna", lat:44.4949, lon:11.3426, sqm:18.4, w:0.85},
+  {name:"Firenze", lat:43.7696, lon:11.2558, sqm:18.5, w:0.8},
+  {name:"Bari", lat:41.1171, lon:16.8719, sqm:18.6, w:0.8},
+  {name:"Catania", lat:37.5079, lon:15.0830, sqm:18.7, w:0.8},
+  {name:"Venezia", lat:45.4408, lon:12.3155, sqm:18.4, w:0.8},
+  {name:"Verona", lat:45.4384, lon:10.9916, sqm:18.5, w:0.75},
+  {name:"Messina", lat:38.1938, lon:15.5540, sqm:18.7, w:0.75},
+  {name:"Padova", lat:45.4064, lon:11.8768, sqm:18.5, w:0.7},
+  {name:"Trieste", lat:45.6495, lon:13.7768, sqm:18.6, w:0.7},
+  {name:"Brescia", lat:45.5416, lon:10.2118, sqm:18.5, w:0.7},
+  {name:"Parma", lat:44.8015, lon:10.3279, sqm:18.6, w:0.7},
+  {name:"Taranto", lat:40.4644, lon:17.2470, sqm:18.7, w:0.7},
+  {name:"Prato", lat:43.8777, lon:11.1023, sqm:18.5, w:0.65},
+  {name:"Modena", lat:44.6471, lon:10.9252, sqm:18.6, w:0.65},
+  {name:"Reggio Calabria", lat:38.1113, lon:15.6473, sqm:18.8, w:0.65},
+  {name:"Reggio Emilia", lat:44.6989, lon:10.6297, sqm:18.7, w:0.6},
+  {name:"Perugia", lat:43.1107, lon:12.3908, sqm:18.9, w:0.6},
+  {name:"Ravenna", lat:44.4184, lon:12.2035, sqm:18.8, w:0.6},
+  {name:"Livorno", lat:43.5485, lon:10.3106, sqm:18.7, w:0.6},
+  {name:"Cagliari", lat:39.2238, lon:9.1217, sqm:18.7, w:0.6},
+  {name:"Foggia", lat:41.4622, lon:15.5446, sqm:19.0, w:0.55},
+  {name:"Salerno", lat:40.6824, lon:14.7681, sqm:18.9, w:0.55},
+  {name:"Ancona", lat:43.6158, lon:13.5189, sqm:19.0, w:0.55},
+  {name:"L'Aquila", lat:42.3505, lon:13.3995, sqm:19.8, w:0.5}
+];
+
+const BORTLE_TABLE = [
+  {min:21.99, max:22.01, class:1, desc:"Cielo nero, Via Lattea strutturata"},
+  {min:21.89, max:21.99, class:2, desc:"Cielo veramente buio"},
+  {min:21.69, max:21.89, class:3, desc:"Cielo rurale"},
+  {min:20.49, max:21.69, class:4, desc:"Rurale/suburbano"},
+  {min:19.50, max:20.49, class:5, desc:"Suburbano"},
+  {min:18.94, max:19.50, class:6, desc:"Suburbano luminoso"},
+  {min:18.38, max:18.94, class:7, desc:"Periferia urbana"},
+  {min:17.50, max:18.38, class:8, desc:"Città"},
+  {min:0,     max:17.50, class:9, desc:"Centro urbano"}
+];
+
+function sqmToBortle(sqm) {
+  for (const t of BORTLE_TABLE) {
+    if (sqm >= t.min && sqm <= t.max) return { class: t.class, desc: t.desc };
+  }
+  return { class: 9, desc: "Centro urbano" };
+}
+
+function estimateSQM(lat, lon) {
+  // Interpolazione esponenziale pesata: ogni città contribuisce con il suo SQM
+  // in base alla distanza (decadimento ~80 km) e al suo peso (dimensione città)
+  let weightedSum = 0;
+  let weightSum = 0;
+  LIGHT_POLLUTION_CITIES.forEach(c => {
+    const dLat = (lat - c.lat) * 111;
+    const dLon = (lon - c.lon) * 111 * Math.cos(rad(lat));
+    const d = Math.hypot(dLat, dLon);
+    // Peso esponenziale: a 0 km peso = w, a 80 km peso ≈ w/3
+    const weight = c.w * Math.exp(-d / 80);
+    weightedSum += weight * c.sqm;
+    weightSum += weight;
+  });
+  let sqm;
+  if (weightSum > 0.01) {
+    sqm = weightedSum / weightSum;
+  } else {
+    // Lontano da qualsiasi città del DB: assumiamo un fondo rurale
+    sqm = 21.5;
+  }
+  // Clamp realistico [17.5, 22.0]
+  return Math.round(clamp(sqm, 17.5, 22.0) * 100) / 100;
+}
+
+function sqmToDesc(sqm) {
+  if (sqm >= 21.8) return { label: "Eccellente", badge: "ok" };
+  if (sqm >= 21.0) return { label: "Buona", badge: "ok" };
+  if (sqm >= 20.0) return { label: "Discreta", badge: "warn" };
+  if (sqm >= 19.0) return { label: "Mediocre", badge: "warn" };
+  return { label: "Scarsa", badge: "bad" };
+}
+
+/* ============================================================
+   ASTRONOMIA (come prima)
+   ============================================================ */
 function getLST(date){
   const jd=date.getTime()/86400000+2440587.5;
   const T=(jd-2451545.0)/36525.0;
@@ -333,24 +429,10 @@ function getMoonPathSVG(pct,wax){
   if(wax)return `M ${cx} ${cy-r} A ${r} ${r} 0 0 1 ${cx} ${cy+r} A ${rx} ${r} 0 0 1 ${cx} ${cy-r} Z`;
   return `M ${cx} ${cy-r} A ${r} ${r} 0 0 0 ${cx} ${cy+r} A ${rx} ${r} 0 0 0 ${cx} ${cy-r} Z`;
 }
-function estimateSQM(lat,lon){
-  const urban=[{lat:41.90,lon:12.49,w:1},{lat:45.46,lon:9.19,w:1},{lat:40.85,lon:14.27,w:.8},{lat:45.07,lon:7.69,w:.7},{lat:44.49,lon:11.34,w:.6},{lat:43.77,lon:11.26,w:.6}];
-  let infl=0;
-  urban.forEach(c=>{
-    const d=Math.hypot((lat-c.lat)*111,(lon-c.lon)*111*Math.cos(rad(lat)));
-    infl+=c.w*Math.exp(-d/40);
-  });
-  const sqm=22-infl*2.5;
-  return Math.round(Math.max(17.5,Math.min(22,sqm))*100)/100;
-}
-function sqmToDesc(sqm){
-  if(sqm>=21.8)return {label:"Eccellente",badge:"ok"};
-  if(sqm>=21)return {label:"Buona",badge:"ok"};
-  if(sqm>=20)return {label:"Discreta",badge:"warn"};
-  if(sqm>=19)return {label:"Mediocre",badge:"warn"};
-  return {label:"Scarsa",badge:"bad"};
-}
 
+/* ============================================================
+   UI / TAB / COORDINATE
+   ============================================================ */
 function switchTab(id,btn){
   document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(el=>el.classList.remove('active'));
@@ -387,6 +469,7 @@ function readInputs(){
   }else state.baseTime=new Date();
   state.currentTime=new Date(state.baseTime);
   state.sqm=estimateSQM(state.lat,state.lon);
+  state.bortle=sqmToBortle(state.sqm);
   _planetCache.key=null;
   try{
     localStorage.setItem('albertoastro_lat', state.lat);
@@ -398,7 +481,6 @@ function updateAll(){
   renderSunMoon();renderSkyQuality();renderQuality();
   if(document.getElementById('tab-sky').classList.contains('active'))onSliderChange();
   if(document.getElementById('tab-tonight').classList.contains('active'))renderTonight();
-  // 🔑 Ricentra la mappa sulla nuova posizione (GPS/IP/manuale)
   if(state.weatherMap)centerWeatherMap();
   const m=document.getElementById('msg-coord');
   m.innerText="✅ Aggiornato";m.className="msg success";
@@ -425,6 +507,7 @@ function applyCoordinates(lat,lon,city,accuracy){
   m.innerHTML=`📍 ${city||'GPS'}${accuracy?' ±'+Math.round(accuracy)+'m':''} — <a href="https://www.google.com/maps?q=${latS},${lonS}" target="_blank" style="color:var(--accent)">Mappa</a>`;
   m.className="msg success";
   state.sqm=estimateSQM(state.lat,state.lon);
+  state.bortle=sqmToBortle(state.sqm);
   updateAll();
   if(document.getElementById('tab-weather').classList.contains('active')){
     fetchAstroWeather();
@@ -487,11 +570,17 @@ function toggleGPSLive(){
   );
 }
 
+/* ============================================================
+   RENDER: SQM, BORTLE, QUALITÀ, STASERA
+   ============================================================ */
 function renderSkyQuality(){
   const d=sqmToDesc(state.sqm);
+  const b=state.bortle || sqmToBortle(state.sqm);
   document.getElementById('sky-quality-grid').innerHTML=`
     <div class="card"><label>SQM stimato</label><div class="val">${state.sqm.toFixed(2)}</div></div>
-    <div class="card"><label>Giudizio</label><div class="val" style="color:var(--${d.badge})">${d.label}</div></div>`;
+    <div class="card"><label>Classe Bortle</label><div class="val">${b.class}/9</div></div>
+    <div class="card"><label>Giudizio</label><div class="val" style="color:var(--${d.badge})">${d.label}</div></div>
+    <div class="card" style="grid-column:1/-1"><label>Descrizione Bortle</label><div style="color:var(--muted);font-size:13px;margin-top:4px">${b.desc}</div></div>`;
 }
 function renderSunMoon(){
   try{
@@ -524,6 +613,7 @@ function renderQuality(){
     <div class="card"><label>Punteggio</label><div class="val">${score.toFixed(1)}/10</div></div>
     <div class="card"><label>Giudizio</label><div class="val" style="color:var(--${badge})">${text}</div></div>
     <div class="card"><label>SQM</label><div class="val">${state.sqm.toFixed(2)}</div></div>
+    <div class="card"><label>Bortle</label><div class="val">${state.bortle?state.bortle.class:'—'}/9</div></div>
     <div class="card"><label>Nuvole</label><div class="val">${state.clouds.toFixed(0)}%</div></div>`;
 }
 function renderTonight(){
@@ -531,7 +621,7 @@ function renderTonight(){
     document.getElementById('tonight-time').innerText=state.currentTime.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
     const night=getNightWindow(state.currentTime);
     if(!night){document.getElementById('tonight-location').innerText="Dati non disponibili";return;}
-    document.getElementById('tonight-location').innerText=`${state.lat.toFixed(2)}°, ${state.lon.toFixed(2)}° — ${night.start.toLocaleDateString('it-IT',{day:'numeric',month:'long'})}`;
+    document.getElementById('tonight-location').innerText=`${state.lat.toFixed(2)}°, ${state.lon.toFixed(2)}° — ${night.start.toLocaleDateString('it-IT',{day:'numeric',month:'long'})} · Bortle ${state.bortle?state.bortle.class:'—'}`;
     const step=20*60000;const samples=[];
     for(let t=night.start.getTime();t<=night.end.getTime();t+=step)samples.push(new Date(t));
     const pData=samples.map(d=>calcPlanetsPrecise(d));
@@ -570,6 +660,9 @@ function renderTonight(){
   }catch(e){console.error('renderTonight err',e);}
 }
 
+/* ============================================================
+   CATALOGO
+   ============================================================ */
 function buildCatalog(){
   const items=[];
   items.push({id:'sun',name:'Sole',symbol:'☀️',cat:'planet',type:'Stella',desc:'La stella al centro del Sistema Solare.'});
@@ -654,6 +747,9 @@ function catDetailGoto(){
   drawMap();
 }
 
+/* ============================================================
+   MAPPA DEL CIELO
+   ============================================================ */
 const canvas=document.getElementById('skyCanvas');
 const ctx=canvas?canvas.getContext('2d'):null;
 const SIZE=1000;
@@ -868,10 +964,9 @@ function handleLogoUpload(event){
 }
 
 /* ============================================================
-   METEO — Mappa dinamica + 7Timer! + Open-Meteo + RainViewer
+   METEO — MAPPA + API ASTRONOMIA VISUALE
    ============================================================ */
 
-// Calcola i bounds attorno a una coordinata (span in gradi ~40 km)
 function getBoundsAround(lat, lon, spanDeg = 0.35) {
   const latSpan = spanDeg;
   const lonSpan = spanDeg / Math.max(0.2, Math.cos(rad(lat)));
@@ -881,107 +976,127 @@ function getBoundsAround(lat, lon, spanDeg = 0.35) {
   ];
 }
 
-// ---------- 7Timer! (Seeing & Trasparenza) con fallback multi-proxy ----------
-async function fetch7TimerData(lat, lon) {
-  const target = `https://www.7timer.info/bin/api.pl?lon=${lon}&lat=${lat}&product=astro&output=json`;
-
-  const attempts = [
-    target, // 1. Diretta
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`, // 2. codetabs
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,     // 3. allorigins
-    `https://corsproxy.io/?${encodeURIComponent(target)}`                   // 4. corsproxy
-  ];
-
-  let data = null;
-  for (const url of attempts) {
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) continue;
-      const json = await res.json();
-      if (json && json.dataseries && json.dataseries.length > 0) {
-        data = json;
-        console.log('7Timer! OK tramite:', url.startsWith('https://www.7timer') ? 'diretto' : 'proxy');
-        break;
-      }
-    } catch (e) {
-      console.warn('7Timer! tentativo fallito:', url.slice(0, 50) + '...', e.message);
-    }
-  }
-
-  if (!data) return null;
-
-  const point = data.dataseries[0];
-
-  const seeingMap = {
-    1:'Eccellente (<0.5")',2:'Buono (0.5-0.75")',3:'Discreto (0.75-1")',
-    4:'Mediocre (1-1.25")',5:'Scadente (1.25-1.5")',6:'Scarso (1.5-2")',
-    7:'Pessimo (2-2.5")',8:'Inutilizzabile (>2.5")'
-  };
-  const transparencyMap = {
-    1:'Pessima (<0.3)',2:'Scarsa (0.3-0.4)',3:'Mediocre (0.4-0.5)',
-    4:'Discreta (0.5-0.6)',5:'Buona (0.6-0.7)',6:'Ottima (0.7-0.8)',
-    7:'Eccellente (0.8-0.9)',8:'Perfetta (>0.9)'
-  };
-  const cloudMap = {
-    1:'0-6%',2:'6-19%',3:'19-31%',4:'31-44%',5:'44-56%',
-    6:'56-69%',7:'69-81%',8:'81-94%',9:'94-100%'
-  };
-  const seeingColors = {1:'var(--ok)',2:'var(--ok)',3:'var(--ok)',4:'var(--warn)',5:'var(--warn)',6:'var(--bad)',7:'var(--bad)',8:'var(--bad)'};
-  const transpColors = {1:'var(--bad)',2:'var(--bad)',3:'var(--warn)',4:'var(--warn)',5:'var(--ok)',6:'var(--ok)',7:'var(--ok)',8:'var(--ok)'};
-
-  return {
-    seeing: seeingMap[point.seeing] || `Indice ${point.seeing}`,
-    seeingColor: seeingColors[point.seeing] || 'var(--text)',
-    transparency: transparencyMap[point.transparency] || `Indice ${point.transparency}`,
-    transparencyColor: transpColors[point.transparency] || 'var(--text)',
-    cloudCover: cloudMap[point.cloudcover] || `Indice ${point.cloudcover}`,
-    raw: point
-  };
+function findClosestHourIndex(times, now = new Date()) {
+  let best = 0, bestDiff = Infinity;
+  times.forEach((t, i) => {
+    const diff = Math.abs(new Date(t) - now);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  });
+  return best;
 }
 
-// ---------- Mappa meteo DINAMICA (segue la posizione attuale) ----------
+// --- API 1: Open-Meteo forecast (nubi stratificate, umidità, vento, temp)
+async function fetchOpenMeteoForecast(lat, lon) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+    + `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,temperature_2m,wind_speed_10m,wind_gusts_10m,visibility`
+    + `&forecast_days=1&timezone=auto`;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.hourly || !data.hourly.time) throw new Error('Dati orari non disponibili');
+    const i = findClosestHourIndex(data.hourly.time);
+    const H = data.hourly;
+    const num = v => (v == null ? null : Number(v));
+    return {
+      low: num(H.cloud_cover_low?.[i]),
+      mid: num(H.cloud_cover_mid?.[i]),
+      high: num(H.cloud_cover_high?.[i]),
+      humidity: num(H.relative_humidity_2m?.[i]),
+      temp: num(H.temperature_2m?.[i]),
+      wind: num(H.wind_speed_10m?.[i]),
+      gusts: num(H.wind_gusts_10m?.[i]),
+      visibility: num(H.visibility?.[i])
+    };
+  } catch (e) {
+    console.warn('Open-Meteo forecast err', e);
+    return null;
+  }
+}
+
+// --- API 2: Open-Meteo Air Quality (dust + pollini)
+async function fetchAirQuality(lat, lon) {
+  const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}`
+    + `&hourly=dust,pollen_grass,pollen_birch,pollen_alder`
+    + `&forecast_days=1&timezone=auto`;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.hourly || !data.hourly.time) throw new Error('Dati orari AQ non disponibili');
+    const i = findClosestHourIndex(data.hourly.time);
+    const H = data.hourly;
+    const num = v => (v == null ? null : Number(v));
+    return {
+      dust: num(H.dust?.[i]),
+      pollenGrass: num(H.pollen_grass?.[i]),
+      pollenBirch: num(H.pollen_birch?.[i]),
+      pollenAlder: num(H.pollen_alder?.[i])
+    };
+  } catch (e) {
+    console.warn('Air Quality err', e);
+    return null;
+  }
+}
+
+// --- API 3: Meteoblue astro-1h (seeing, jetstream, badlayer)
+async function fetchMeteoblueAstro(lat, lon, apiKey) {
+  if (!apiKey) return null;
+  const url = `https://my.meteoblue.com/packages/astro-1h?lat=${lat}&lon=${lon}&apikey=${encodeURIComponent(apiKey)}`;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const h = data && data.data_1h;
+    if (!h || !h.time) throw new Error('Dati astro-1h non disponibili');
+    const times = h.time.map(ts => {
+      if (typeof ts === 'string' && ts.length >= 16) return ts.replace(' ', 'T') + ':00Z';
+      return ts;
+    });
+    const i = findClosestHourIndex(times);
+    const num = v => (v == null ? null : Number(v));
+    return {
+      seeing: num(h.seeing?.[i]),
+      seeing2: num(h.seeing2?.[i]),
+      transparency: num(h.transparency?.[i]),
+      jetstream: num(h.jetstream?.[i]),
+      badlayer: num(h.badlayer?.[i]),
+      liftedIndex: num(h.lifted_index?.[i]),
+      index1: num(h.index1?.[i])
+    };
+  } catch (e) {
+    console.warn('Meteoblue astro err', e);
+    return null;
+  }
+}
+
+// --- Mappa DINAMICA (segue la posizione attuale)
 function initWeatherMap(){
   const el=document.getElementById('weather-map');
   if(!el || typeof L==='undefined'){console.warn('Leaflet o #weather-map mancanti');return;}
-
   if(state.weatherMap){
     state.weatherMap.invalidateSize();
     centerWeatherMap();
     return;
   }
-
   try{
-    // 🔑 Usa la posizione ATTUALE (GPS/IP/manuale), MAI hardcoded
     const center = [state.lat, state.lon];
     const bounds = getBoundsAround(state.lat, state.lon);
-
     state.weatherMap=L.map('weather-map',{
-      center: center,
-      zoom: 11,
-      minZoom: 9,
-      maxZoom: 14,
-      maxBounds: bounds,
-      maxBoundsViscosity: 1.0,
-      zoomControl: true
+      center, zoom: 11, minZoom: 9, maxZoom: 14,
+      maxBounds: bounds, maxBoundsViscosity: 1.0, zoomControl: true
     });
-
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      attribution:'&copy; OpenStreetMap contributors',
-      maxZoom:19
+      attribution:'&copy; OpenStreetMap contributors', maxZoom:19
     }).addTo(state.weatherMap);
-
     state.weatherMarker=L.marker(center).addTo(state.weatherMap)
       .bindPopup(`📍 ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`).openPopup();
-
-    // Radar precipitazioni gratuito (RainViewer, no API key)
     addRainViewerLayer();
-
     updateWeatherLayer();
     setTimeout(()=>state.weatherMap.invalidateSize(), 100);
   }catch(e){console.error('initWeatherMap err',e);}
 }
 
-// ---------- RainViewer (radar precipitazioni, gratuito, no key) ----------
 async function addRainViewerLayer(){
   if(!state.weatherMap || state.rainViewerLayer) return;
   try{
@@ -1000,14 +1115,9 @@ async function addRainViewerLayer(){
 
 function updateWeatherLayer(){
   if(!state.weatherMap) return;
-  if(state.radarLayer){
-    state.weatherMap.removeLayer(state.radarLayer);
-    state.radarLayer=null;
-  }
-
+  if(state.radarLayer){ state.weatherMap.removeLayer(state.radarLayer); state.radarLayer=null; }
   const layerType = state.activeWeatherLayer;
   if(!state.owmApiKey) return;
-
   let url='';
   switch(layerType){
     case 'clouds': url=`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${state.owmApiKey}`; break;
@@ -1016,24 +1126,15 @@ function updateWeatherLayer(){
     case 'pressure': url=`https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid=${state.owmApiKey}`; break;
     default: return;
   }
-
-  state.radarLayer=L.tileLayer(url,{
-    attribution:'&copy; OpenWeatherMap',
-    maxZoom:8,
-    opacity:0.7
-  }).addTo(state.weatherMap);
+  state.radarLayer=L.tileLayer(url,{ attribution:'&copy; OpenWeatherMap', maxZoom:8, opacity:0.7 }).addTo(state.weatherMap);
 }
 
-// 🔑 Ricentra la mappa sulla posizione attuale (chiamata da updateAll su GPS/IP/manuale)
 function centerWeatherMap(){
   if(!state.weatherMap) return;
   const center = [state.lat, state.lon];
   const bounds = getBoundsAround(state.lat, state.lon);
-
-  // Aggiorna i bounds perché la posizione è cambiata (es. GPS)
   state.weatherMap.setMaxBounds(bounds);
   state.weatherMap.setView(center, 11);
-
   if(state.weatherMarker){
     state.weatherMarker.setLatLng(center);
     state.weatherMarker.setPopupContent(`📍 ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`);
@@ -1048,95 +1149,207 @@ function setWeatherLayer(layer, btn){
   updateWeatherLayer();
 }
 
-// ---------- Meteo astronomico (Open-Meteo + 7Timer! in parallelo) ----------
+/* ============================================================
+   VERDETTO UNIFICATO (integra tutte le fonti)
+   ============================================================ */
+function buildVerdict(w) {
+  if (!w) return { tone: 'warn', text: '⚠️ Dati insufficienti per il verdetto.' };
+  const low = w.low, mid = w.mid, high = w.high, hum = w.humidity;
+  const dust = w.dust;
+  const seeing = w.seeing;
+  const jet = w.jetstream;
+  const bortle = w.bortle;
+
+  // 1) Nubi basse/medie → sessione annullata
+  if ((low != null && low > 20) || (mid != null && mid > 20)) {
+    return { tone: 'bad', text: '❌ Sessione annullata: cielo coperto da nubi basse/medie.' };
+  }
+  // 2) Umidità critica → condensa
+  if (hum != null && hum > 88) {
+    return { tone: 'warn', text: '⚠️ Allerta condensa: cielo limpido ma umidità critica. Accendi le fasce anticondensa.' };
+  }
+  // 3) Seeing eccellente + jet contenuto → planetaria
+  if (seeing != null && seeing >= 4 && jet != null && jet < 25) {
+    return { tone: 'ok', text: '✨ Serata planetaria perfetta: seeing eccellente, jet stream debole. Spingi gli ingrandimenti.' };
+  }
+  // 4) Deep-sky: nubi alte basse + polveri basse + Bortle ≤ 5
+  if (high != null && high < 15 && dust != null && dust < 30 && bortle != null && bortle <= 5) {
+    return { tone: 'ok', text: '🌌 Serata Deep-Sky consigliata: ottima trasparenza e inquinamento luminoso contenuto.' };
+  }
+  return { tone: 'warn', text: '🔭 Serata accettabile: seeing medio. Pianifica oggetti luminosi a medi ingrandimenti.' };
+}
+
+/* ============================================================
+   FETCH METEO ASTRONOMICO COMPLETO
+   ============================================================ */
 async function fetchAstroWeather(){
   const card = document.getElementById('astro-weather-card');
   if(!card) return;
-  card.innerHTML = '<div style="color:var(--muted);padding:10px">⏳ Caricamento dati astronomici...</div>';
+  card.innerHTML = '<div style="color:var(--muted);padding:10px">⏳ Caricamento dati astronomici (Open-Meteo + Air Quality + Meteoblue)...</div>';
 
-  const [openMeteoRes, sevenTimer] = await Promise.allSettled([
-    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${state.lat}&longitude=${state.lon}&hourly=temperature_2m,cloud_cover,visibility,wind_speed_10m,wind_gusts_10m&forecast_days=2&timezone=auto`, { cache:'no-store' }),
-    fetch7TimerData(state.lat, state.lon)
+  // Assicurati che SQM/Bortle siano calcolati per la posizione corrente
+  state.sqm = estimateSQM(state.lat, state.lon);
+  state.bortle = sqmToBortle(state.sqm);
+
+  const [omRes, aqRes, mbRes] = await Promise.allSettled([
+    fetchOpenMeteoForecast(state.lat, state.lon),
+    fetchAirQuality(state.lat, state.lon),
+    fetchMeteoblueAstro(state.lat, state.lon, state.mbApiKey)
   ]);
 
-  let omData = null;
-  if(openMeteoRes.status === 'fulfilled' && openMeteoRes.value.ok){
-    try{ omData = await openMeteoRes.value.json(); }catch(e){}
-  }
-  const st = sevenTimer.status === 'fulfilled' ? sevenTimer.value : null;
+  const om = omRes.status === 'fulfilled' ? omRes.value : null;
+  const aq = aqRes.status === 'fulfilled' ? aqRes.value : null;
+  const mb = mbRes.status === 'fulfilled' ? mbRes.value : null;
+
+  state.lastWeather = {
+    low: om?.low, mid: om?.mid, high: om?.high, humidity: om?.humidity,
+    dust: aq?.dust, seeing: mb?.seeing, jetstream: mb?.jetstream,
+    bortle: state.bortle?.class,
+    clouds: om ? Math.max(om.low ?? 0, om.mid ?? 0, om.high ?? 0) : null
+  };
+  if (state.lastWeather.clouds != null) state.clouds = state.lastWeather.clouds;
+
+  const fmt = v => (v == null ? 'N/D' : (typeof v === 'number' ? v.toFixed(1) : v));
+  const colorBy = (v, t1, t2) => (v == null ? 'var(--muted)' : (v <= t1 ? 'var(--ok)' : (v <= t2 ? 'var(--warn)' : 'var(--bad)')));
 
   let html = '';
 
-  // --- Sezione Open-Meteo ---
-  if(omData && omData.hourly && omData.hourly.time){
-    const now = new Date();
-    let bestIndex = 0, minDiff = Infinity;
-    omData.hourly.time.forEach((t,i)=>{
-      const diff = Math.abs(new Date(t) - now);
-      if(diff < minDiff){ minDiff = diff; bestIndex = i; }
-    });
-    const cur = {
-      temp: omData.hourly.temperature_2m[bestIndex],
-      clouds: omData.hourly.cloud_cover[bestIndex],
-      visibility: omData.hourly.visibility[bestIndex],
-      wind: omData.hourly.wind_speed_10m[bestIndex],
-      gusts: omData.hourly.wind_gusts_10m[bestIndex]
-    };
-    state.clouds = cur.clouds;
-
-    const cloudColor = cur.clouds<30?'var(--ok)':(cur.clouds<70?'var(--warn)':'var(--bad)');
-    const visColor = cur.visibility>20000?'var(--ok)':(cur.visibility>10000?'var(--warn)':'var(--bad)');
-    const windColor = cur.wind<15?'var(--ok)':(cur.wind<30?'var(--warn)':'var(--bad)');
-
+  // --- Open-Meteo forecast
+  if (om) {
     html += `
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
         <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-          <label>☁️ Nuvole</label>
-          <div class="val" style="font-size:16px;color:${cloudColor};">${cur.clouds.toFixed(0)}%</div>
+          <label>☁️ Nuvole basse</label>
+          <div class="val" style="font-size:16px;color:${colorBy(om.low,20,60)};">${fmt(om.low)}%</div>
         </div>
         <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-          <label>👁️ Visibilità</label>
-          <div class="val" style="font-size:16px;color:${visColor};">${(cur.visibility/1000).toFixed(1)} km</div>
+          <label>☁️ Nuvole medie</label>
+          <div class="val" style="font-size:16px;color:${colorBy(om.mid,20,60)};">${fmt(om.mid)}%</div>
+        </div>
+        <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+          <label>☁️ Nuvole alte</label>
+          <div class="val" style="font-size:16px;color:${colorBy(om.high,15,40)};">${fmt(om.high)}%</div>
+        </div>
+        <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+          <label>💧 Umidità</label>
+          <div class="val" style="font-size:16px;color:${colorBy(om.humidity,70,88)};">${fmt(om.humidity)}%</div>
+        </div>
+        <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+          <label>🌡️ Temperatura</label>
+          <div class="val" style="font-size:16px;">${fmt(om.temp)}°C</div>
         </div>
         <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
           <label>💨 Vento</label>
-          <div class="val" style="font-size:16px;color:${windColor};">${cur.wind.toFixed(0)} km/h</div>
-          <div style="font-size:10px;color:var(--muted);">Raffiche ${cur.gusts.toFixed(0)} km/h</div>
-        </div>
-        <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-          <label>🌡️ Temp</label>
-          <div class="val" style="font-size:16px;">${cur.temp.toFixed(1)}°C</div>
+          <div class="val" style="font-size:16px;">${fmt(om.wind)} km/h</div>
+          <div style="font-size:10px;color:var(--muted);">Raffiche ${fmt(om.gusts)} km/h</div>
         </div>
       </div>`;
   } else {
-    html += `<div style="color:var(--bad);padding:10px;">❌ Open-Meteo non disponibile.</div>`;
+    html += `<div style="color:var(--bad);padding:10px;">❌ Open-Meteo forecast non disponibile.</div>`;
   }
 
-  // --- Sezione 7Timer! ---
-  if(st){
+  // --- Air Quality
+  if (aq) {
     html += `
       <div style="margin-top:15px;padding-top:15px;border-top:1px solid var(--line);">
         <h4 style="color:var(--accent);font-family:'Orbitron';font-size:14px;margin-bottom:10px;">
-          🔭 7Timer! — Seeing &amp; Trasparenza (prossime 3 h)
+          🌫️ Trasparenza aria (Open-Meteo Air Quality)
         </h4>
-        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;">
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;">
           <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-            <label>Seeing</label>
-            <div class="val" style="font-size:13px;color:${st.seeingColor};">${st.seeing}</div>
+            <label>Polveri (dust)</label>
+            <div class="val" style="font-size:16px;color:${aq.dust==null?'var(--muted)':(aq.dust<30?'var(--ok)':(aq.dust<60?'var(--warn)':'var(--bad)'))};">
+              ${fmt(aq.dust)} µg/m³
+            </div>
           </div>
           <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-            <label>Trasparenza</label>
-            <div class="val" style="font-size:13px;color:${st.transparencyColor};">${st.transparency}</div>
+            <label>Polline graminacee</label>
+            <div class="val" style="font-size:16px;">${fmt(aq.pollenGrass)}</div>
           </div>
           <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-            <label>Nuvolosità (7Timer)</label>
-            <div class="val" style="font-size:13px;">${st.cloudCover}</div>
+            <label>Polline betulla</label>
+            <div class="val" style="font-size:16px;">${fmt(aq.pollenBirch)}</div>
           </div>
         </div>
       </div>`;
   } else {
-    html += `<div style="color:var(--warn);padding:10px;margin-top:12px;">⚠️ Seeing/Trasparenza (7Timer!) non disponibili al momento. I proxy gratuiti potrebbero essere saturi: riprova tra 1-2 minuti.</div>`;
+    html += `<div style="color:var(--warn);padding:10px;margin-top:12px;">⚠️ Air Quality non disponibile.</div>`;
   }
+
+  // --- Meteoblue (seeing + jetstream + badlayer)
+  if (mb) {
+    const seeingColor = mb.seeing == null ? 'var(--muted)' : (mb.seeing >= 4 ? 'var(--ok)' : (mb.seeing >= 3 ? 'var(--warn)' : 'var(--bad)'));
+    const jetColor = mb.jetstream == null ? 'var(--muted)' : (mb.jetstream < 25 ? 'var(--ok)' : (mb.jetstream < 40 ? 'var(--warn)' : 'var(--bad)'));
+    html += `
+      <div style="margin-top:15px;padding-top:15px;border-top:1px solid var(--line);">
+        <h4 style="color:var(--accent);font-family:'Orbitron';font-size:14px;margin-bottom:10px;">
+          🔭 Seeing atmosferico (Meteoblue astro-1h)
+        </h4>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;">
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>Seeing (1-5)</label>
+            <div class="val" style="font-size:16px;color:${seeingColor};">${mb.seeing==null?'N/D':mb.seeing + '/5'}</div>
+          </div>
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>Seeing 2 (1-5)</label>
+            <div class="val" style="font-size:16px;">${mb.seeing2==null?'N/D':mb.seeing2 + '/5'}</div>
+          </div>
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>Jet stream</label>
+            <div class="val" style="font-size:16px;color:${jetColor};">${fmt(mb.jetstream)} m/s</div>
+          </div>
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>Strati instabili</label>
+            <div class="val" style="font-size:16px;color:${mb.badlayer ? 'var(--bad)' : 'var(--ok)'};">
+              ${mb.badlayer == null ? 'N/D' : (mb.badlayer ? 'Sì' : 'No')}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  } else {
+    html += `
+      <div style="color:var(--muted);padding:12px;margin-top:12px;background:var(--bg2);border:1px dashed var(--line);border-radius:10px;font-size:12px;">
+        <strong>Meteoblue non configurato.</strong> Per seeing, jet stream e strati instabili inserisci una API key gratuita
+        (<a href="https://content.meteoblue.com/en/contact/support/request-api-key" target="_blank" style="color:var(--accent)">richiedila qui</a>).
+      </div>`;
+  }
+
+  // --- Inquinamento luminoso (SQM + Bortle)
+  {
+    const b = state.bortle || sqmToBortle(state.sqm);
+    const bortleColor = b.class <= 3 ? 'var(--ok)' : (b.class <= 5 ? 'var(--warn)' : 'var(--bad)');
+    html += `
+      <div style="margin-top:15px;padding-top:15px;border-top:1px solid var(--line);">
+        <h4 style="color:var(--accent);font-family:'Orbitron';font-size:14px;margin-bottom:10px;">
+          🌃 Inquinamento luminoso (SQM + Bortle)
+        </h4>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;">
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>SQM stimato</label>
+            <div class="val" style="font-size:16px;">${state.sqm.toFixed(2)}</div>
+          </div>
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
+            <label>Classe Bortle</label>
+            <div class="val" style="font-size:16px;color:${bortleColor};">${b.class}/9</div>
+          </div>
+          <div class="card" style="padding:14px;background:var(--bg2);margin:0;grid-column:span 2;">
+            <label>Descrizione</label>
+            <div style="color:var(--muted);font-size:12px;margin-top:4px;">${b.desc}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // --- Verdetto
+  const v = buildVerdict(state.lastWeather);
+  const vColor = v.tone === 'ok' ? 'var(--ok)' : (v.tone === 'warn' ? 'var(--warn)' : 'var(--bad)');
+  html += `
+    <div style="margin-top:15px;padding:14px;background:var(--bg2);border:1px solid ${vColor};border-radius:12px;">
+      <div style="font-family:'Orbitron';font-size:12px;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">
+        📋 Verdetto osservativo
+      </div>
+      <div style="color:${vColor};font-weight:600;font-size:14px;">${v.text}</div>
+    </div>`;
 
   html += `<div style="font-size:10px;color:var(--muted);margin-top:10px;text-align:right;">
     📍 Lat ${state.lat.toFixed(3)}, Lon ${state.lon.toFixed(3)} — posizione attuale
@@ -1162,14 +1375,25 @@ function saveOwmKey(){
   state.owmApiKey=key;
   localStorage.setItem('albertoastro_owm_key',key);
   const m=document.getElementById('msg-weather');
-  m.innerText='✅ API Key salvata.';m.className='msg success';
+  m.innerText='✅ API Key OWM salvata.';m.className='msg success';
   if(state.weatherMap)updateWeatherLayer();
   fetchWeather();
 }
+
+function saveMbKey(){
+  const key=document.getElementById('mb-api-key').value.trim();
+  if(!key){alert('Inserisci una API Key Meteoblue valida.');return;}
+  state.mbApiKey=key;
+  localStorage.setItem('albertoastro_mb_key',key);
+  const m=document.getElementById('msg-weather');
+  m.innerText='✅ API Key Meteoblue salvata. Ricarico i dati...';m.className='msg success';
+  fetchAstroWeather();
+}
+
 async function fetchWeather(){
   const m=document.getElementById('msg-weather');
   if(!state.owmApiKey){
-    m.innerText='⚠️ Inserisci prima la API Key OpenWeatherMap (o ignora questa sezione: seeing/trasparenza funzionano comunque).';
+    m.innerText='⚠️ Inserisci prima la API Key OpenWeatherMap (o ignora questa sezione: il meteo astronomico funziona comunque).';
     m.className='msg';m.style.color='var(--warn)';
     return;
   }
@@ -1199,6 +1423,9 @@ async function fetchWeather(){
   }
 }
 
+/* ============================================================
+   INIT
+   ============================================================ */
 function initApp(){
   try{
     const now=new Date();
@@ -1215,6 +1442,7 @@ function initApp(){
       document.getElementById('logoFallback').style.display='none';
     }
     if(state.owmApiKey)document.getElementById('owm-api-key').value=state.owmApiKey;
+    if(state.mbApiKey)document.getElementById('mb-api-key').value=state.mbApiKey;
     readInputs();
     renderSunMoon();
     renderSkyQuality();
