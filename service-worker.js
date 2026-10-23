@@ -1,4 +1,4 @@
-const CACHE = 'alberto-astro-v13';
+const CACHE = 'alberto-astro-v14';
 const ASSETS = ['./', './index.html', './app.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
@@ -23,6 +23,8 @@ self.addEventListener('fetch', e => {
       url.hostname.includes('rainviewer') ||
       url.hostname.includes('open-meteo') ||
       url.hostname.includes('meteoblue') ||
+      url.hostname.includes('corsproxy') ||
+      url.hostname.includes('allorigins') ||
       url.hostname.includes('tile.openstreetmap') ||
       url.hostname.includes('jsdelivr') ||
       url.hostname.includes('unpkg') ||
