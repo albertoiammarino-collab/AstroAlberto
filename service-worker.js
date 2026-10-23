@@ -1,4 +1,4 @@
-const CACHE = 'alberto-astro-v11';
+const CACHE = 'alberto-astro-v13';
 const ASSETS = ['./', './index.html', './app.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
@@ -18,14 +18,11 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  // Non mettere in cache API meteo e risorse esterne
+  // Non mettere in cache API meteo e risorse esterne (sempre fresche)
   if (url.hostname.includes('openweathermap') ||
       url.hostname.includes('rainviewer') ||
       url.hostname.includes('open-meteo') ||
-      url.hostname.includes('7timer') ||
-      url.hostname.includes('codetabs') ||
-      url.hostname.includes('allorigins') ||
-      url.hostname.includes('corsproxy') ||
+      url.hostname.includes('meteoblue') ||
       url.hostname.includes('tile.openstreetmap') ||
       url.hostname.includes('jsdelivr') ||
       url.hostname.includes('unpkg') ||
