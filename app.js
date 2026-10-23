@@ -1,12 +1,5 @@
 /* ============================================================
-   ALBERTO ASTRO - App astronomica (v13)
-   SETUP API ASTRONOMIA VISUALE:
-   - Meteoblue astro-1h        → seeing, jetstream, badlayer
-   - Open-Meteo forecast        → nubi low/mid/high, umidità, vento, temp
-   - Open-Meteo air-quality     → dust, pollini
-   - SQM + Bortle (statico)     → inquinamento luminoso interpolato
-   - Radar RainViewer           → precipitazioni (no key)
-   - 7Timer! RIMOSSO
+   ALBERTO ASTRO - App astronomica (v14 - Bugfix Mappa, Meteoblue, AirQuality)
    ============================================================ */
 'use strict';
 
@@ -224,9 +217,6 @@ const CONSTELLATIONS = [
   {name:"Croce del Sud",stars:[{ra:186.65,dec:-63.10},{ra:187.79,dec:-57.11},{ra:191.93,dec:-59.69},{ra:183.79,dec:-58.75}],area:"68°q",season:"Autunno",desc:"Emisfero sud."}
 ];
 
-/* ============================================================
-   DATABASE INQUINAMENTO LUMINOSO (30 città italiane + interpolazione)
-   ============================================================ */
 const LIGHT_POLLUTION_CITIES = [
   {name:"Milano", lat:45.4642, lon:9.1900, sqm:18.1, w:1.0},
   {name:"Roma", lat:41.9028, lon:12.4964, sqm:18.3, w:1.0},
@@ -280,27 +270,17 @@ function sqmToBortle(sqm) {
 }
 
 function estimateSQM(lat, lon) {
-  // Interpolazione esponenziale pesata: ogni città contribuisce con il suo SQM
-  // in base alla distanza (decadimento ~80 km) e al suo peso (dimensione città)
   let weightedSum = 0;
   let weightSum = 0;
   LIGHT_POLLUTION_CITIES.forEach(c => {
     const dLat = (lat - c.lat) * 111;
     const dLon = (lon - c.lon) * 111 * Math.cos(rad(lat));
     const d = Math.hypot(dLat, dLon);
-    // Peso esponenziale: a 0 km peso = w, a 80 km peso ≈ w/3
     const weight = c.w * Math.exp(-d / 80);
     weightedSum += weight * c.sqm;
     weightSum += weight;
   });
-  let sqm;
-  if (weightSum > 0.01) {
-    sqm = weightedSum / weightSum;
-  } else {
-    // Lontano da qualsiasi città del DB: assumiamo un fondo rurale
-    sqm = 21.5;
-  }
-  // Clamp realistico [17.5, 22.0]
+  let sqm = weightSum > 0.01 ? weightedSum / weightSum : 21.5;
   return Math.round(clamp(sqm, 17.5, 22.0) * 100) / 100;
 }
 
@@ -312,9 +292,6 @@ function sqmToDesc(sqm) {
   return { label: "Scarsa", badge: "bad" };
 }
 
-/* ============================================================
-   ASTRONOMIA (come prima)
-   ============================================================ */
 function getLST(date){
   const jd=date.getTime()/86400000+2440587.5;
   const T=(jd-2451545.0)/36525.0;
@@ -430,9 +407,6 @@ function getMoonPathSVG(pct,wax){
   return `M ${cx} ${cy-r} A ${r} ${r} 0 0 0 ${cx} ${cy+r} A ${rx} ${r} 0 0 0 ${cx} ${cy-r} Z`;
 }
 
-/* ============================================================
-   UI / TAB / COORDINATE
-   ============================================================ */
 function switchTab(id,btn){
   document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(el=>el.classList.remove('active'));
@@ -570,9 +544,6 @@ function toggleGPSLive(){
   );
 }
 
-/* ============================================================
-   RENDER: SQM, BORTLE, QUALITÀ, STASERA
-   ============================================================ */
 function renderSkyQuality(){
   const d=sqmToDesc(state.sqm);
   const b=state.bortle || sqmToBortle(state.sqm);
@@ -660,9 +631,6 @@ function renderTonight(){
   }catch(e){console.error('renderTonight err',e);}
 }
 
-/* ============================================================
-   CATALOGO
-   ============================================================ */
 function buildCatalog(){
   const items=[];
   items.push({id:'sun',name:'Sole',symbol:'☀️',cat:'planet',type:'Stella',desc:'La stella al centro del Sistema Solare.'});
@@ -747,9 +715,6 @@ function catDetailGoto(){
   drawMap();
 }
 
-/* ============================================================
-   MAPPA DEL CIELO
-   ============================================================ */
 const canvas=document.getElementById('skyCanvas');
 const ctx=canvas?canvas.getContext('2d'):null;
 const SIZE=1000;
@@ -964,7 +929,7 @@ function handleLogoUpload(event){
 }
 
 /* ============================================================
-   METEO — MAPPA + API ASTRONOMIA VISUALE
+   METEO — MAPPA + API (BUGFIX)
    ============================================================ */
 
 function getBoundsAround(lat, lon, spanDeg = 0.35) {
@@ -985,7 +950,7 @@ function findClosestHourIndex(times, now = new Date()) {
   return best;
 }
 
-// --- API 1: Open-Meteo forecast (nubi stratificate, umidità, vento, temp)
+// --- API 1: Open-Meteo forecast
 async function fetchOpenMeteoForecast(lat, lon) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
     + `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,temperature_2m,wind_speed_10m,wind_gusts_10m,visibility`
@@ -1014,10 +979,10 @@ async function fetchOpenMeteoForecast(lat, lon) {
   }
 }
 
-// --- API 2: Open-Meteo Air Quality (dust + pollini)
+// --- API 2: Open-Meteo Air Quality (BUGFIX: only dust and pm2_5 to avoid 400)
 async function fetchAirQuality(lat, lon) {
   const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}`
-    + `&hourly=dust,pollen_grass,pollen_birch,pollen_alder`
+    + `&hourly=dust,pm2_5` // Semplificato per evitare errori di parametri
     + `&forecast_days=1&timezone=auto`;
   try {
     const res = await fetch(url, { cache: 'no-store' });
@@ -1029,9 +994,7 @@ async function fetchAirQuality(lat, lon) {
     const num = v => (v == null ? null : Number(v));
     return {
       dust: num(H.dust?.[i]),
-      pollenGrass: num(H.pollen_grass?.[i]),
-      pollenBirch: num(H.pollen_birch?.[i]),
-      pollenAlder: num(H.pollen_alder?.[i])
+      pm25: num(H.pm2_5?.[i])
     };
   } catch (e) {
     console.warn('Air Quality err', e);
@@ -1039,38 +1002,51 @@ async function fetchAirQuality(lat, lon) {
   }
 }
 
-// --- API 3: Meteoblue astro-1h (seeing, jetstream, badlayer)
+// --- API 3: Meteoblue astro-1h (BUGFIX: Aggiunto proxy CORS)
 async function fetchMeteoblueAstro(lat, lon, apiKey) {
   if (!apiKey) return null;
-  const url = `https://my.meteoblue.com/packages/astro-1h?lat=${lat}&lon=${lon}&apikey=${encodeURIComponent(apiKey)}`;
-  try {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const h = data && data.data_1h;
-    if (!h || !h.time) throw new Error('Dati astro-1h non disponibili');
-    const times = h.time.map(ts => {
-      if (typeof ts === 'string' && ts.length >= 16) return ts.replace(' ', 'T') + ':00Z';
-      return ts;
-    });
-    const i = findClosestHourIndex(times);
-    const num = v => (v == null ? null : Number(v));
-    return {
-      seeing: num(h.seeing?.[i]),
-      seeing2: num(h.seeing2?.[i]),
-      transparency: num(h.transparency?.[i]),
-      jetstream: num(h.jetstream?.[i]),
-      badlayer: num(h.badlayer?.[i]),
-      liftedIndex: num(h.lifted_index?.[i]),
-      index1: num(h.index1?.[i])
-    };
-  } catch (e) {
-    console.warn('Meteoblue astro err', e);
-    return null;
+  const target = `https://my.meteoblue.com/packages/astro-1h?lat=${lat}&lon=${lon}&apikey=${encodeURIComponent(apiKey)}`;
+  
+  // Prova prima diretto, poi usa proxy noti
+  const proxies = [
+    target,
+    `https://corsproxy.io/?${encodeURIComponent(target)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`
+  ];
+
+  let data = null;
+  for (const url of proxies) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.data_1h) { data = json; break; } // Trovato!
+      }
+    } catch (e) { /* Ignora e prova il proxy successivo */ }
   }
+
+  if (!data) return null;
+
+  const h = data.data_1h;
+  if (!h || !h.time) return null;
+
+  const times = h.time.map(ts => {
+    if (typeof ts === 'string' && ts.length >= 16) return ts.replace(' ', 'T') + ':00Z';
+    return ts;
+  });
+  const i = findClosestHourIndex(times);
+  const num = v => (v == null ? null : Number(v));
+  return {
+    seeing: num(h.seeing?.[i]),
+    seeing2: num(h.seeing2?.[i]),
+    transparency: num(h.transparency?.[i]),
+    jetstream: num(h.jetstream?.[i]),
+    badlayer: num(h.badlayer?.[i]),
+    liftedIndex: num(h.lifted_index?.[i]),
+    index1: num(h.index1?.[i])
+  };
 }
 
-// --- Mappa DINAMICA (segue la posizione attuale)
 function initWeatherMap(){
   const el=document.getElementById('weather-map');
   if(!el || typeof L==='undefined'){console.warn('Leaflet o #weather-map mancanti');return;}
@@ -1108,7 +1084,7 @@ async function addRainViewerLayer(){
     const path = frames[frames.length-1].path;
     state.rainViewerLayer = L.tileLayer(
       `https://tilecache.rainviewer.com${path}/256/{z}/{x}/{y}/2/1_1.png`,
-      { opacity: 0.55, maxZoom: 10, attribution: '&copy; RainViewer' }
+      { opacity: 0.55, maxNativeZoom: 8, maxZoom: 14, attribution: '&copy; RainViewer' }
     ).addTo(state.weatherMap);
   }catch(e){ console.warn('RainViewer err', e); }
 }
@@ -1126,7 +1102,13 @@ function updateWeatherLayer(){
     case 'pressure': url=`https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid=${state.owmApiKey}`; break;
     default: return;
   }
-  state.radarLayer=L.tileLayer(url,{ attribution:'&copy; OpenWeatherMap', maxZoom:8, opacity:0.7 }).addTo(state.weatherMap);
+  // BUGFIX: Aggiunto maxNativeZoom per evitare l'errore "Zoom Level Not Supported" su zoom > 8
+  state.radarLayer=L.tileLayer(url,{ 
+    attribution:'&copy; OpenWeatherMap', 
+    maxNativeZoom: 8, 
+    maxZoom: 14,
+    opacity:0.7 
+  }).addTo(state.weatherMap);
 }
 
 function centerWeatherMap(){
@@ -1149,9 +1131,6 @@ function setWeatherLayer(layer, btn){
   updateWeatherLayer();
 }
 
-/* ============================================================
-   VERDETTO UNIFICATO (integra tutte le fonti)
-   ============================================================ */
 function buildVerdict(w) {
   if (!w) return { tone: 'warn', text: '⚠️ Dati insufficienti per il verdetto.' };
   const low = w.low, mid = w.mid, high = w.high, hum = w.humidity;
@@ -1160,34 +1139,26 @@ function buildVerdict(w) {
   const jet = w.jetstream;
   const bortle = w.bortle;
 
-  // 1) Nubi basse/medie → sessione annullata
   if ((low != null && low > 20) || (mid != null && mid > 20)) {
     return { tone: 'bad', text: '❌ Sessione annullata: cielo coperto da nubi basse/medie.' };
   }
-  // 2) Umidità critica → condensa
   if (hum != null && hum > 88) {
     return { tone: 'warn', text: '⚠️ Allerta condensa: cielo limpido ma umidità critica. Accendi le fasce anticondensa.' };
   }
-  // 3) Seeing eccellente + jet contenuto → planetaria
   if (seeing != null && seeing >= 4 && jet != null && jet < 25) {
     return { tone: 'ok', text: '✨ Serata planetaria perfetta: seeing eccellente, jet stream debole. Spingi gli ingrandimenti.' };
   }
-  // 4) Deep-sky: nubi alte basse + polveri basse + Bortle ≤ 5
   if (high != null && high < 15 && dust != null && dust < 30 && bortle != null && bortle <= 5) {
     return { tone: 'ok', text: '🌌 Serata Deep-Sky consigliata: ottima trasparenza e inquinamento luminoso contenuto.' };
   }
   return { tone: 'warn', text: '🔭 Serata accettabile: seeing medio. Pianifica oggetti luminosi a medi ingrandimenti.' };
 }
 
-/* ============================================================
-   FETCH METEO ASTRONOMICO COMPLETO
-   ============================================================ */
 async function fetchAstroWeather(){
   const card = document.getElementById('astro-weather-card');
   if(!card) return;
   card.innerHTML = '<div style="color:var(--muted);padding:10px">⏳ Caricamento dati astronomici (Open-Meteo + Air Quality + Meteoblue)...</div>';
 
-  // Assicurati che SQM/Bortle siano calcolati per la posizione corrente
   state.sqm = estimateSQM(state.lat, state.lon);
   state.bortle = sqmToBortle(state.sqm);
 
@@ -1214,7 +1185,7 @@ async function fetchAstroWeather(){
 
   let html = '';
 
-  // --- Open-Meteo forecast
+  // Open-Meteo forecast
   if (om) {
     html += `
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
@@ -1248,7 +1219,7 @@ async function fetchAstroWeather(){
     html += `<div style="color:var(--bad);padding:10px;">❌ Open-Meteo forecast non disponibile.</div>`;
   }
 
-  // --- Air Quality
+  // Air Quality (Aggiornato a dust e PM2.5)
   if (aq) {
     html += `
       <div style="margin-top:15px;padding-top:15px;border-top:1px solid var(--line);">
@@ -1263,12 +1234,8 @@ async function fetchAstroWeather(){
             </div>
           </div>
           <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-            <label>Polline graminacee</label>
-            <div class="val" style="font-size:16px;">${fmt(aq.pollenGrass)}</div>
-          </div>
-          <div class="card" style="padding:14px;background:var(--bg2);margin:0;">
-            <label>Polline betulla</label>
-            <div class="val" style="font-size:16px;">${fmt(aq.pollenBirch)}</div>
+            <label>Particolato (PM2.5)</label>
+            <div class="val" style="font-size:16px;">${fmt(aq.pm25)} µg/m³</div>
           </div>
         </div>
       </div>`;
@@ -1276,7 +1243,7 @@ async function fetchAstroWeather(){
     html += `<div style="color:var(--warn);padding:10px;margin-top:12px;">⚠️ Air Quality non disponibile.</div>`;
   }
 
-  // --- Meteoblue (seeing + jetstream + badlayer)
+  // Meteoblue
   if (mb) {
     const seeingColor = mb.seeing == null ? 'var(--muted)' : (mb.seeing >= 4 ? 'var(--ok)' : (mb.seeing >= 3 ? 'var(--warn)' : 'var(--bad)'));
     const jetColor = mb.jetstream == null ? 'var(--muted)' : (mb.jetstream < 25 ? 'var(--ok)' : (mb.jetstream < 40 ? 'var(--warn)' : 'var(--bad)'));
@@ -1308,13 +1275,12 @@ async function fetchAstroWeather(){
       </div>`;
   } else {
     html += `
-      <div style="color:var(--muted);padding:12px;margin-top:12px;background:var(--bg2);border:1px dashed var(--line);border-radius:10px;font-size:12px;">
-        <strong>Meteoblue non configurato.</strong> Per seeing, jet stream e strati instabili inserisci una API key gratuita
-        (<a href="https://content.meteoblue.com/en/contact/support/request-api-key" target="_blank" style="color:var(--accent)">richiedila qui</a>).
+      <div style="color:var(--bad);padding:12px;margin-top:12px;background:rgba(248,113,113,0.1);border:1px dashed var(--bad);border-radius:10px;font-size:12px;">
+        <strong>Meteoblue non disponibile.</strong> Verifica che la chiave API sia corretta, che l'account sia attivo, o riprova più tardi (a volte i proxy gratuiti si saturano).
       </div>`;
   }
 
-  // --- Inquinamento luminoso (SQM + Bortle)
+  // Inquinamento luminoso
   {
     const b = state.bortle || sqmToBortle(state.sqm);
     const bortleColor = b.class <= 3 ? 'var(--ok)' : (b.class <= 5 ? 'var(--warn)' : 'var(--bad)');
@@ -1340,7 +1306,7 @@ async function fetchAstroWeather(){
       </div>`;
   }
 
-  // --- Verdetto
+  // Verdetto
   const v = buildVerdict(state.lastWeather);
   const vColor = v.tone === 'ok' ? 'var(--ok)' : (v.tone === 'warn' ? 'var(--warn)' : 'var(--bad)');
   html += `
@@ -1393,7 +1359,7 @@ function saveMbKey(){
 async function fetchWeather(){
   const m=document.getElementById('msg-weather');
   if(!state.owmApiKey){
-    m.innerText='⚠️ Inserisci prima la API Key OpenWeatherMap (o ignora questa sezione: il meteo astronomico funziona comunque).';
+    m.innerText='⚠️ Inserisci prima la API Key OpenWeatherMap (o ignora questa sezione).';
     m.className='msg';m.style.color='var(--warn)';
     return;
   }
@@ -1423,9 +1389,6 @@ async function fetchWeather(){
   }
 }
 
-/* ============================================================
-   INIT
-   ============================================================ */
 function initApp(){
   try{
     const now=new Date();
